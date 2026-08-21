@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0e1a" />
+  <meta name="description" content="PhysioPulse – Real-time physiotherapy monitoring dashboard for accelerometer, gyroscope and temperature data from MYOSA ESP32 sensor." />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="PhysioPulse" />
+  <title>PhysioPulse – Physiotherapy Monitor</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Roboto+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ═══ SPLASH SCREEN ═══════════════════════════════════════════════════ -->
+<div id="splash-screen" class="splash">
+  <div class="splash-content">
+    <div class="splash-logo">
+      <div class="splash-icon">
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="32" cy="32" r="30" stroke="url(#splashGrad)" stroke-width="2"/>
+          <path d="M12 32 L20 20 L28 36 L36 14 L44 28 L52 32" stroke="url(#splashGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs>
+            <linearGradient id="splashGrad" x1="12" y1="14" x2="52" y2="50" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#00d4ff"/>
+              <stop offset="100%" stop-color="#7c3aed"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+      <h1 class="splash-title">PhysioPulse</h1>
+      <p class="splash-subtitle">Physiotherapy Monitoring System</p>
+      <p class="splash-team">MYOSA 6.0 Prototype</p>
+    </div>
+    <div class="splash-loader">
+      <div class="loader-bar"><div class="loader-fill" id="loaderFill"></div></div>
+      <p class="loader-text" id="loaderText">Initializing...</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ AUTH SCREENS ═══════════════════════════════════════════════════════ -->
+<div id="auth-screen" class="auth-screen hidden">
+  <!-- Login Page -->
+  <div id="auth-login" class="auth-card">
+    <div class="auth-logo">
+      <svg viewBox="0 0 48 48" fill="none">
+        <circle cx="24" cy="24" r="22" stroke="url(#authGrad)" stroke-width="1.5"/>
+        <path d="M10 24 L16 16 L22 28 L28 10 L34 22 L40 24" stroke="url(#authGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <defs>
+          <linearGradient id="authGrad" x1="10" y1="10" x2="40" y2="38" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#00d4ff"/>
+            <stop offset="100%" stop-color="#7c3aed"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div>
+        <h1 class="auth-brand">PhysioPulse</h1>
+        <p class="auth-brand-sub">MYOSA 6.0</p>
+      </div>
+    </div>
+    <h2 class="auth-title">Welcome Back</h2>
+    <p class="auth-subtitle">Sign in to your account</p>
+
+    <div id="loginError" class="auth-error hidden"></div>
+
+    <div class="form-group">
+      <label class="form-label" for="loginEmail">Email Address</label>
+      <input type="email" class="form-input" id="loginEmail" placeholder="doctor@hospital.com" autocomplete="email" />
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="loginPassword">Password</label>
+      <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" autocomplete="current-password" />
+    </div>
+    <button class="btn-primary auth-submit" id="loginBtn">
+      <span id="loginBtnText">Sign In</span>
+      <span id="loginBtnLoader" class="btn-loader hidden">⟳</span>
+    </button>
+    <p class="auth-switch">
+      Don't have an account? <a href="#" id="goToRegister">Register here</a>
+    </p>
+  </div>
+
+  <!-- Register Page -->
+  <div id="auth-register" class="auth-card hidden">
+    <div class="auth-logo">
+      <svg viewBox="0 0 48 48" fill="none">
+        <circle cx="24" cy="24" r="22" stroke="url(#authGrad2)" stroke-width="1.5"/>
+        <path d="M10 24 L16 16 L22 28 L28 10 L34 22 L40 24" stroke="url(#authGrad2)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <defs>
+          <linearGradient id="authGrad2" x1="10" y1="10" x2="40" y2="38" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#00d4ff"/>
+            <stop offset="100%" stop-color="#7c3aed"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div>
+        <h1 class="auth-brand">PhysioPulse</h1>
+        <p class="auth-brand-sub">Create Account</p>
+      </div>
+    </div>
+
+    <!-- Role selector -->
+    <div class="role-selector">
+      <button class="role-btn active" id="roleDoctor" data-role="doctor">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-3a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><circle cx="12" cy="14" r="3"/><path d="M12 11v-1M12 17v1M9.5 14H8.5M15.5 14h-1"/></svg>
+        <span>Doctor</span>
+      </button>
+      <button class="role-btn" id="rolePatient" data-role="patient">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span>Patient</span>
+      </button>
+    </div>
+
+    <div id="registerError" class="auth-error hidden"></div>
+
+    <div class="form-group">
+      <label class="form-label" for="regName">Full Name</label>
+      <input type="text" class="form-input" id="regName" placeholder="Dr. John Smith / Jane Doe" autocomplete="name" />
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="regEmail">Email Address</label>
+      <input type="email" class="form-input" id="regEmail" placeholder="your@email.com" autocomplete="email" />
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="regPassword">Password <span style="color:rgba(255,255,255,0.4);font-size:0.75rem">(min 6 chars)</span></label>
+      <input type="password" class="form-input" id="regPassword" placeholder="••••••••" autocomplete="new-password" />
+    </div>
+
+    <!-- Patient-only: Doctor Code -->
+    <div class="form-group" id="doctorCodeGroup" style="display:none">
+      <label class="form-label" for="regDoctorCode">Doctor Code <span style="color:rgba(255,255,255,0.4);font-size:0.75rem">(from your doctor)</span></label>
+      <input type="text" class="form-input" id="regDoctorCode" placeholder="e.g. DR0001" style="text-transform:uppercase" />
+    </div>
+
+    <button class="btn-primary auth-submit" id="registerBtn">
+      <span id="registerBtnText">Create Account</span>
+      <span id="registerBtnLoader" class="btn-loader hidden">⟳</span>
+    </button>
+    <p class="auth-switch">
+      Already have an account? <a href="#" id="goToLogin">Sign in</a>
+    </p>
+  </div>
+</div>
+
+<!-- ═══ APP SHELL ═══════════════════════════════════════════════════════ -->
+<div id="app" class="app hidden">
+
+  <!-- ─── SIDEBAR NAVIGATION ──────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 40 40" fill="none">
+            <circle cx="20" cy="20" r="18" stroke="url(#navGrad)" stroke-width="1.5"/>
+            <path d="M8 20 L13 13 L18 22 L23 9 L28 17 L32 20" stroke="url(#navGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <defs>
+              <linearGradient id="navGrad" x1="8" y1="9" x2="32" y2="31" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#00d4ff"/>
+                <stop offset="100%" stop-color="#7c3aed"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">PhysioPulse</span>
+          <span class="brand-tag">MYOSA 6.0</span>
+        </div>
+      </div>
+      <button class="sidebar-close" id="sidebarClose" aria-label="Close menu">✕</button>
+    </div>
+
+    <!-- Connection Status in sidebar -->
+    <div class="sidebar-connection">
+      <div class="conn-dot" id="sidebarConnDot"></div>
+      <span class="conn-label" id="sidebarConnLabel">Disconnected</span>
+    </div>
+
+    <!-- User info in sidebar -->
+    <div class="sidebar-user" id="sidebarUser">
+      <div class="sidebar-user-avatar" id="sidebarUserAvatar">?</div>
+      <div class="sidebar-user-info">
+        <div class="sidebar-user-name" id="sidebarUserName">—</div>
+        <div class="sidebar-user-role" id="sidebarUserRole">—</div>
+      </div>
+    </div>
+
+    <!-- DOCTOR NAV -->
+    <nav class="sidebar-nav" id="nav-doctor" style="display:none">
+      <a href="#" class="nav-item active" data-page="doctor-dashboard" id="nav-doctor-dashboard">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
+        <span class="nav-label">Dashboard</span>
+      </a>
+      <a href="#" class="nav-item" data-page="doctor-patients" id="nav-doctor-patients">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        <span class="nav-label">My Patients</span>
+      </a>
+      <a href="#" class="nav-item" data-page="live" id="nav-live-doctor">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+        <span class="nav-label">Live Charts</span>
+      </a>
+      <a href="#" class="nav-item" data-page="settings" id="nav-settings-doctor">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+        <span class="nav-label">Settings</span>
+      </a>
+    </nav>
+
+    <!-- PATIENT NAV -->
+    <nav class="sidebar-nav" id="nav-patient" style="display:none">
+      <a href="#" class="nav-item active" data-page="patient-dashboard" id="nav-patient-dashboard">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
+        <span class="nav-label">My Dashboard</span>
+      </a>
+      <a href="#" class="nav-item" data-page="patient-exercise" id="nav-patient-exercise">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg></span>
+        <span class="nav-label">Exercise</span>
+      </a>
+      <a href="#" class="nav-item" data-page="patient-history" id="nav-patient-history">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+        <span class="nav-label">My History</span>
+      </a>
+      <a href="#" class="nav-item" data-page="live" id="nav-live-patient">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+        <span class="nav-label">Live Charts</span>
+      </a>
+      <a href="#" class="nav-item" data-page="settings" id="nav-settings-patient">
+        <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+        <span class="nav-label">Settings</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="btn-logout" id="logoutBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Sign Out
+      </button>
+      <div class="hw-badge">
+        <span class="hw-dot"></span>
+        <span>ESP32 + MPU-6050</span>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- ─── MAIN CONTENT ─────────────────────────────────────────────────── -->
+  <main class="main-content">
+
+    <!-- Top Bar -->
+    <header class="topbar">
+      <button class="topbar-menu" id="menuBtn" aria-label="Open menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="topbar-title" id="topbarTitle">Dashboard</div>
+      <div class="topbar-actions">
+        <div class="role-badge" id="roleBadge"></div>
+        <div class="connection-badge" id="connBadge">
+          <div class="conn-pulse" id="connPulse"></div>
+          <span id="connStatus">Disconnected</span>
+        </div>
+        <div class="live-indicator hidden" id="liveIndicator">
+          <span class="live-dot"></span>
+          <span>LIVE</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- ═══ DOCTOR PAGES ════════════════════════════════════════════════ -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+
+    <!-- ── DOCTOR: DASHBOARD ─────────────────────────────────────────── -->
+    <section class="page" id="page-doctor-dashboard">
+      <div class="page-header">
+        <h1>Doctor Dashboard</h1>
+        <div class="page-meta">
+          <span class="doctor-code-badge">Your Code: <strong id="doctorCode">—</strong></span>
+        </div>
+      </div>
+
+      <div class="doctor-welcome-bar">
+        <div class="doctor-avatar-wrap">
+          <div class="doctor-avatar">🩺</div>
+          <div>
+            <div class="doctor-welcome-name">Dr. <span id="doctorName">—</span></div>
+            <div class="doctor-welcome-sub">Share your Doctor Code with patients to link them to your account</div>
+          </div>
+        </div>
+        <div class="doctor-stats-row">
+          <div class="doctor-stat-card">
+            <span class="ds-val" id="doctorPatientCount">0</span>
+            <span class="ds-label">Patients</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alerts Panel -->
+      <div class="section-title">Recent Patient Alerts</div>
+      <div class="alerts-panel" id="doctorAlertsList">
+        <div class="empty-mini">Loading...</div>
+      </div>
+
+      <!-- Patient Cards -->
+      <div class="section-title" style="margin-top:2rem">My Patients
+        <button class="btn-secondary btn-sm" onclick="App.navigateTo('doctor-patients')">View All</button>
+      </div>
+      <div class="patient-cards-grid" id="doctorPatientCards"></div>
+    </section>
+
+    <!-- ── DOCTOR: PATIENTS LIST ──────────────────────────────────────── -->
+    <section class="page" id="page-doctor-patients">
+      <div class="page-header">
+        <h1>My Patients</h1>
+        <div class="page-meta">
+          <span class="doctor-code-badge">Code: <strong id="doctorCodePatients">—</strong></span>
+        </div>
+      </div>
+      <div class="patient-cards-grid" id="doctorPatientCardsFull"></div>
+    </section>
+
+    <!-- ── DOCTOR: PATIENT DETAIL + THRESHOLD FORM ───────────────────── -->
+    <section class="page" id="page-doctor-patient">
+      <div class="page-header">
+        <button class="btn-secondary btn-sm" id="backToPatients">← Back to Patients</button>
+        <h1 id="dpPatientName">Patient</h1>
+      </div>
+
+      <div class="dp-layout">
+        <!-- Left: patient profile + threshold form -->
+        <div class="dp-left">
+
+          <!-- Patient Profile Card -->
+          <div class="settings-card">
+            <h2 class="settings-title">Patient Profile</h2>
+            <div class="dp-profile-info">
+              <div class="dp-profile-row"><span class="dp-profile-label">Age</span><span class="dp-profile-val" id="dpPatientAge">—</span></div>
+              <div class="dp-profile-row"><span class="dp-profile-label">Condition</span><span class="dp-profile-val" id="dpPatientCondition">—</span></div>
+              <div class="dp-profile-row"><span class="dp-profile-label">Sessions</span><span class="dp-profile-val" id="dpSessionCount">0</span></div>
+              <div class="dp-profile-row"><span class="dp-profile-label">Compliance</span><span class="dp-profile-val" id="dpCompliance">—</span></div>
+            </div>
+            <hr class="divider" />
+            <h3 class="form-title" style="margin-bottom:1rem">Edit Profile</h3>
+            <form id="patientProfileForm">
+              <div class="form-group">
+                <label class="form-label" for="dpEditName">Name</label>
+                <input type="text" class="form-input" id="dpEditName" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="dpEditAge">Age</label>
+                <input type="number" class="form-input" id="dpEditAge" min="1" max="120" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="dpEditCondition">Condition / Diagnosis</label>
+                <input type="text" class="form-input" id="dpEditCondition" placeholder="e.g. ACL Tear, Shoulder Injury" />
+              </div>
+              <button type="button" class="btn-secondary" id="patientProfileSaveBtn" style="width:100%">Save Profile</button>
+            </form>
+          </div>
+
+          <!-- Threshold Form -->
+          <div class="settings-card" style="margin-top:1.5rem">
+            <h2 class="settings-title">Exercise Thresholds</h2>
+            <p class="settings-desc">Set the safe angle range and exercise targets for this patient. These will be used to alert the patient during home exercise sessions.</p>
+            <form id="thresholdForm">
+              <div class="form-group">
+                <label class="form-label" for="dpExerciseType">Exercise Type</label>
+                <select class="form-select" id="dpExerciseType">
+                  <option>Knee Flexion / Extension</option>
+                  <option>Shoulder Abduction</option>
+                  <option>Wrist Rotation</option>
+                  <option>Ankle Dorsiflexion</option>
+                  <option>Hip Rotation</option>
+                  <option>Spinal Flexion</option>
+                  <option>Custom Exercise</option>
+                </select>
+              </div>
+              <div class="thresh-grid">
+                <div class="form-group">
+                  <label class="form-label" for="dpMinAngle">Min Angle (°) <span class="form-hint">target minimum flexion</span></label>
+                  <input type="number" class="form-input" id="dpMinAngle" value="30" min="0" max="180" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="dpMaxAngle">Max Angle (°) <span class="form-hint">safe upper limit</span></label>
+                  <input type="number" class="form-input" id="dpMaxAngle" value="120" min="0" max="180" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="dpTargetReps">Target Reps <span class="form-hint">per session</span></label>
+                  <input type="number" class="form-input" id="dpTargetReps" value="10" min="1" max="100" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="dpMotionLimit">Motion Limit (°/s) <span class="form-hint">gyro alert</span></label>
+                  <input type="number" class="form-input" id="dpMotionLimit" value="100" min="10" max="500" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="dpTempLimit">Temp Alert (°C)</label>
+                  <input type="number" class="form-input" id="dpTempLimit" value="40" min="30" max="50" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="dpNotes">Clinical Notes</label>
+                <textarea class="form-textarea" id="dpNotes" rows="3" placeholder="Notes for this threshold change..."></textarea>
+              </div>
+              <button type="button" class="btn-primary" id="thresholdSaveBtn" style="width:100%">
+                💾 Save Thresholds
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Right: history + threshold history -->
+        <div class="dp-right">
+          <!-- Exercise History -->
+          <div class="settings-card">
+            <h2 class="settings-title">Exercise History</h2>
+            <div id="dpHistoryTable"><div class="empty-mini">Loading...</div></div>
+          </div>
+
+          <!-- Threshold Change History -->
+          <div class="settings-card" style="margin-top:1.5rem">
+            <h2 class="settings-title">Threshold History</h2>
+            <p class="settings-desc">All previous threshold settings for this patient.</p>
+            <div id="dpThresholdHistory"><div class="empty-mini">No changes yet</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- ═══ PATIENT PAGES ═══════════════════════════════════════════════ -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+
+    <!-- ── PATIENT: DASHBOARD ────────────────────────────────────────── -->
+    <section class="page" id="page-patient-dashboard">
+      <div class="page-header">
+        <h1>My Dashboard</h1>
+        <div class="page-meta">
+          <button class="btn-secondary btn-sm" id="ptRefreshThreshold">↻ Sync Thresholds</button>
+        </div>
+      </div>
+
+      <!-- Patient welcome -->
+      <div class="patient-welcome-bar">
+        <div class="patient-welcome-left">
+          <div class="patient-welcome-avatar" id="ptAvatarLetter">P</div>
+          <div>
+            <div class="patient-welcome-name" id="ptPatientName">—</div>
+            <div class="patient-welcome-sub">Assigned Doctor: <span id="ptDoctorInfo">—</span></div>
+          </div>
+        </div>
+        <button class="btn-primary" onclick="App.navigateTo('patient-exercise')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+          Start Exercise
+        </button>
+      </div>
+
+      <!-- Summary Stats -->
+      <div class="pt-stats-row">
+        <div class="pt-stat-card">
+          <span class="pts-val" id="ptTotalSessions">0</span>
+          <span class="pts-label">Sessions</span>
+        </div>
+        <div class="pt-stat-card">
+          <span class="pts-val" id="ptCompliance">—</span>
+          <span class="pts-label">Compliance</span>
+        </div>
+        <div class="pt-stat-card">
+          <span class="pts-val" id="ptLastSession">—</span>
+          <span class="pts-label">Last Session</span>
+        </div>
+      </div>
+
+      <!-- Threshold Info Card -->
+      <div class="threshold-display-card" id="ptThreshCard">
+        <div class="tdc-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <span>Your Exercise Prescription</span>
+          <span class="tdc-type" id="ptExercise">—</span>
+        </div>
+        <div class="tdc-grid">
+          <div class="tdc-item">
+            <span class="tdc-label">Min Angle</span>
+            <span class="tdc-val" id="ptMinAngle">—</span>
+          </div>
+          <div class="tdc-item">
+            <span class="tdc-label">Max Angle</span>
+            <span class="tdc-val" id="ptMaxAngle">—</span>
+          </div>
+          <div class="tdc-item">
+            <span class="tdc-label">Target Reps</span>
+            <span class="tdc-val" id="ptTargetReps">—</span>
+          </div>
+          <div class="tdc-item">
+            <span class="tdc-label">Motion Limit</span>
+            <span class="tdc-val" id="ptMotionLimit">—</span>
+          </div>
+          <div class="tdc-item">
+            <span class="tdc-label">Temp Alert</span>
+            <span class="tdc-val" id="ptTempLimit">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- No threshold state -->
+      <div class="no-thresh-card" id="ptNoThresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <h3>No Exercise Prescription Yet</h3>
+        <p>Your doctor hasn't set your exercise thresholds yet. Please visit your doctor for your initial assessment, or click "Sync Thresholds" if your doctor has already entered them.</p>
+      </div>
+
+      <!-- Sensor cards (live data) -->
+      <div class="section-title" style="margin-top:2rem">Live Sensor Data</div>
+      <div class="cards-grid">
+        <!-- Accelerometer Card -->
+        <div class="sensor-card card-accel">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-icon accel-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </div>
+              <div>
+                <h2 class="card-title">Accelerometer</h2>
+                <p class="card-subtitle">Linear acceleration (g)</p>
+              </div>
+            </div>
+            <div class="card-badge">±2g</div>
+          </div>
+          <div class="axes-grid">
+            <div class="axis-reading"><span class="axis-label axis-x">X</span><span class="axis-value mono" id="accelX">0.000</span><span class="axis-unit">g</span><div class="axis-bar"><div class="axis-fill ax-fill" id="accelXBar"></div></div></div>
+            <div class="axis-reading"><span class="axis-label axis-y">Y</span><span class="axis-value mono" id="accelY">0.000</span><span class="axis-unit">g</span><div class="axis-bar"><div class="axis-fill ay-fill" id="accelYBar"></div></div></div>
+            <div class="axis-reading"><span class="axis-label axis-z">Z</span><span class="axis-value mono" id="accelZ">0.000</span><span class="axis-unit">g</span><div class="axis-bar"><div class="axis-fill az-fill" id="accelZBar"></div></div></div>
+          </div>
+          <div class="card-magnitude"><span class="mag-label">Magnitude</span><span class="mag-value mono" id="accelMag">0.000 g</span></div>
+          <canvas class="mini-chart" id="miniAccelChart" height="60"></canvas>
+        </div>
+
+        <!-- Gyroscope Card -->
+        <div class="sensor-card card-gyro">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-icon gyro-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 9 9"/><path d="M21 12a9 9 0 0 1-9 9"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>
+              </div>
+              <div>
+                <h2 class="card-title">Gyroscope</h2>
+                <p class="card-subtitle">Angular velocity (°/s)</p>
+              </div>
+            </div>
+            <div class="card-badge">±250°/s</div>
+          </div>
+          <div class="axes-grid">
+            <div class="axis-reading"><span class="axis-label axis-x">X</span><span class="axis-value mono" id="gyroX">0.000</span><span class="axis-unit">°/s</span><div class="axis-bar"><div class="axis-fill gx-fill" id="gyroXBar"></div></div></div>
+            <div class="axis-reading"><span class="axis-label axis-y">Y</span><span class="axis-value mono" id="gyroY">0.000</span><span class="axis-unit">°/s</span><div class="axis-bar"><div class="axis-fill gy-fill" id="gyroYBar"></div></div></div>
+            <div class="axis-reading"><span class="axis-label axis-z">Z</span><span class="axis-value mono" id="gyroZ">0.000</span><span class="axis-unit">°/s</span><div class="axis-bar"><div class="axis-fill gz-fill" id="gyroZBar"></div></div></div>
+          </div>
+          <div class="card-magnitude"><span class="mag-label">Total Rate</span><span class="mag-value mono" id="gyroMag">0.000 °/s</span></div>
+          <canvas class="mini-chart" id="miniGyroChart" height="60"></canvas>
+        </div>
+
+        <!-- Temperature Card -->
+        <div class="sensor-card card-temp">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-icon temp-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+              </div>
+              <div><h2 class="card-title">Temperature</h2><p class="card-subtitle">Sensor junction temp (°C)</p></div>
+            </div>
+          </div>
+          <div class="temp-display">
+            <div class="temp-gauge-wrap">
+              <svg class="temp-gauge" viewBox="0 0 160 100" id="tempGaugeSVG">
+                <path d="M 20 90 A 70 70 0 0 1 140 90" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="12" stroke-linecap="round"/>
+                <path d="M 20 90 A 70 70 0 0 1 140 90" fill="none" stroke="url(#tempGrad)" stroke-width="12" stroke-linecap="round" stroke-dasharray="220" stroke-dashoffset="220" id="tempGaugeFill"/>
+                <line x1="80" y1="90" x2="80" y2="30" stroke="#fff" stroke-width="2" stroke-linecap="round" transform="rotate(0, 80, 90)" id="tempNeedle"/>
+                <circle cx="80" cy="90" r="4" fill="#fff"/>
+                <defs>
+                  <linearGradient id="tempGrad" x1="20" y1="90" x2="140" y2="90" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stop-color="#00d4ff"/><stop offset="50%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#ef4444"/>
+                  </linearGradient>
+                </defs>
+              </svg>
+              <div class="temp-value-wrap"><span class="temp-value mono" id="tempValue">--.-</span><span class="temp-unit">°C</span></div>
+            </div>
+            <div class="temp-stats">
+              <div class="temp-stat"><span class="ts-label">Min</span><span class="ts-val mono" id="tempMin">--.-</span></div>
+              <div class="temp-stat"><span class="ts-label">Max</span><span class="ts-val mono" id="tempMax">--.-</span></div>
+              <div class="temp-stat"><span class="ts-label">Avg</span><span class="ts-val mono" id="tempAvg">--.-</span></div>
+            </div>
+          </div>
+          <canvas class="mini-chart" id="miniTempChart" height="60"></canvas>
+        </div>
+
+        <!-- ROM Card -->
+        <div class="sensor-card card-rom">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-icon rom-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22V12"/><path d="m15 19-3 3-3-3"/><path d="M20 12a8 8 0 1 0-16 0"/></svg>
+              </div>
+              <div><h2 class="card-title">Range of Motion</h2><p class="card-subtitle">Computed joint angles</p></div>
+            </div>
+          </div>
+          <div class="rom-grid">
+            <div class="rom-item"><span class="rom-label">Pitch (X)</span><div class="rom-arc-wrap"><svg class="rom-arc" viewBox="0 0 80 50"><path d="M 5 45 A 37 37 0 0 1 75 45" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/><path d="M 5 45 A 37 37 0 0 1 75 45" fill="none" stroke="#00d4ff" stroke-width="8" stroke-dasharray="116" stroke-dashoffset="116" id="pitchArc"/></svg><span class="rom-value mono" id="pitchVal">0°</span></div></div>
+            <div class="rom-item"><span class="rom-label">Roll (Y)</span><div class="rom-arc-wrap"><svg class="rom-arc" viewBox="0 0 80 50"><path d="M 5 45 A 37 37 0 0 1 75 45" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/><path d="M 5 45 A 37 37 0 0 1 75 45" fill="none" stroke="#a855f7" stroke-width="8" stroke-dasharray="116" stroke-dashoffset="116" id="rollArc"/></svg><span class="rom-value mono" id="rollVal">0°</span></div></div>
+            <div class="rom-item"><span class="rom-label">Yaw (Z)</span><div class="rom-arc-wrap"><svg class="rom-arc" viewBox="0 0 80 50"><path d="M 5 45 A 37 37 0 0 1 75 45" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/><path d="M 5 45 A 37 37 0 0 1 75 45" fill="none" stroke="#f59e0b" stroke-width="8" stroke-dasharray="116" stroke-dashoffset="116" id="yawArc"/></svg><span class="rom-value mono" id="yawVal">0°</span></div></div>
+          </div>
+          <div class="rom-alert hidden" id="romAlert">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span id="romAlertText">Motion limit exceeded</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PATIENT: EXERCISE PAGE ─────────────────────────────────────── -->
+    <section class="page" id="page-patient-exercise">
+      <div class="page-header">
+        <h1>Exercise Session</h1>
+        <div class="page-meta">
+          <span class="exercise-timer mono" id="ptExerciseTimer">00:00</span>
+        </div>
+      </div>
+
+      <div class="exercise-layout">
+        <!-- Rep Counter + Controls -->
+        <div class="exercise-control-panel">
+          <!-- Big Rep Ring -->
+          <div class="rep-ring-wrap">
+            <svg class="rep-ring" viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="10"/>
+              <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="10"
+                stroke-dasharray="339.29" stroke-dashoffset="339.29"
+                stroke-linecap="round" id="repProgressRing"
+                style="transition:stroke-dashoffset 0.4s ease, stroke 0.4s ease; transform-origin:60px 60px; transform:rotate(-90deg)"/>
+            </svg>
+            <div class="rep-ring-inner">
+              <span class="rep-count-big mono" id="ptRepCountBig">0</span>
+              <span class="rep-count-label">reps</span>
+            </div>
+          </div>
+
+          <!-- Exercise Info Banner -->
+          <div class="exercise-info-banner">
+            <div class="eib-item">
+              <span class="eib-label">Target</span>
+              <span class="eib-val" id="ptExerciseTarget">— reps</span>
+            </div>
+            <div class="eib-item">
+              <span class="eib-label">Exercise</span>
+              <span class="eib-val" id="ptExerciseName">—</span>
+            </div>
+            <div class="eib-item">
+              <span class="eib-label">Range</span>
+              <span class="eib-val" id="ptExerciseRange">—° – —°</span>
+            </div>
+          </div>
+
+          <!-- Live stats during exercise -->
+          <div class="exercise-live-stats">
+            <div class="els-item">
+              <span class="els-label">Current Angle</span>
+              <span class="els-val mono" id="ptLivePitch">0.0°</span>
+            </div>
+            <div class="els-item">
+              <span class="els-label">Motion</span>
+              <span class="els-val mono" id="ptLiveGyro">0.0 °/s</span>
+            </div>
+            <div class="els-item">
+              <span class="els-label">Temperature</span>
+              <span class="els-val mono" id="ptLiveTemp">—</span>
+            </div>
+            <div class="els-item">
+              <span class="els-label">Reps Done</span>
+              <span class="els-val mono" id="ptRepCount">0</span>
+            </div>
+          </div>
+
+          <!-- Alert Box -->
+          <div class="exercise-alert hidden" id="ptExerciseAlert">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span id="ptExerciseAlertText">Alert</span>
+          </div>
+
+          <!-- Start / Stop Buttons -->
+          <div class="exercise-btns">
+            <button class="btn-record" id="ptStartExercise">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+              Start Exercise
+            </button>
+            <button class="btn-stop hidden" id="ptStopExercise">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg>
+              Stop & Save
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Sensor Charts -->
+        <div class="exercise-charts-panel">
+          <div class="chart-card">
+            <div class="chart-card-header"><h2>Accelerometer (g)</h2></div>
+            <div class="chart-wrap"><canvas id="sessionAccelChart"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-header"><h2>Gyroscope (°/s)</h2></div>
+            <div class="chart-wrap"><canvas id="sessionGyroChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PATIENT: HISTORY ───────────────────────────────────────────── -->
+    <section class="page" id="page-patient-history">
+      <div class="page-header">
+        <h1>Exercise History</h1>
+      </div>
+
+      <div id="ptHistoryEmpty" class="empty-state">
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </div>
+        <h2>No sessions recorded yet</h2>
+        <p>Complete an exercise session to see your history here.</p>
+      </div>
+
+      <div class="history-list" id="ptHistoryList"></div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- ═══ SHARED PAGES ════════════════════════════════════════════════ -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+
+    <!-- ── PAGE: LIVE CHARTS ──────────────────────────────────────────── -->
+    <section class="page" id="page-live">
+      <div class="page-header">
+        <h1>Live Charts</h1>
+        <div class="page-meta">
+          <select class="time-select" id="timeWindow">
+            <option value="10">10s window</option>
+            <option value="30" selected>30s window</option>
+            <option value="60">60s window</option>
+          </select>
+        </div>
+      </div>
+      <div class="chart-section">
+        <div class="chart-card"><div class="chart-card-header"><h2>Accelerometer (g)</h2><div class="chart-legend"><span class="legend-dot" style="background:#ef4444"></span><span>X</span><span class="legend-dot" style="background:#22c55e"></span><span>Y</span><span class="legend-dot" style="background:#3b82f6"></span><span>Z</span></div></div><div class="chart-wrap"><canvas id="accelChart"></canvas></div></div>
+        <div class="chart-card"><div class="chart-card-header"><h2>Gyroscope (°/s)</h2><div class="chart-legend"><span class="legend-dot" style="background:#f97316"></span><span>X</span><span class="legend-dot" style="background:#a855f7"></span><span>Y</span><span class="legend-dot" style="background:#06b6d4"></span><span>Z</span></div></div><div class="chart-wrap"><canvas id="gyroChart"></canvas></div></div>
+        <div class="chart-card chart-card-half"><div class="chart-card-header"><h2>Temperature (°C)</h2></div><div class="chart-wrap"><canvas id="tempChart"></canvas></div></div>
+        <div class="chart-card chart-card-half"><div class="chart-card-header"><h2>Range of Motion (°)</h2><div class="chart-legend"><span class="legend-dot" style="background:#00d4ff"></span><span>Pitch</span><span class="legend-dot" style="background:#a855f7"></span><span>Roll</span><span class="legend-dot" style="background:#f59e0b"></span><span>Yaw</span></div></div><div class="chart-wrap"><canvas id="romChart"></canvas></div></div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: SETTINGS ────────────────────────────────────────────── -->
+    <section class="page" id="page-settings">
+      <div class="page-header"><h1>Settings</h1></div>
+      <div class="settings-grid">
+        <div class="settings-card">
+          <h2 class="settings-title">Connection</h2>
+          <div class="setting-row">
+            <div class="setting-info"><span class="setting-label">Connection Mode</span><span class="setting-desc">WiFi WebSocket or Web Bluetooth BLE</span></div>
+            <div class="toggle-group" id="connModeToggle">
+              <button class="toggle-btn active" data-mode="wifi">WiFi</button>
+              <button class="toggle-btn" data-mode="ble">BLE</button>
+            </div>
+          </div>
+          <div class="setting-row" id="wifiSettings">
+            <div class="setting-info"><span class="setting-label">WebSocket URL</span><span class="setting-desc">ws://192.168.4.1:81 (default AP)</span></div>
+            <input type="text" class="form-input" id="wsUrl" value="ws://192.168.4.1:81" style="max-width:240px" />
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><span class="setting-label">Auto-Reconnect</span><span class="setting-desc">Reconnect on connection loss</span></div>
+            <label class="switch"><input type="checkbox" id="autoReconnect" checked /><span class="switch-slider"></span></label>
+          </div>
+          <div class="setting-row"><button class="btn-primary" id="connectBtn" style="width:100%">Connect to ESP32</button></div>
+          <div class="setting-row"><button class="btn-secondary" id="calibrateBtn" style="width:100%">Recalibrate Gyroscope</button></div>
+        </div>
+        <div class="settings-card">
+          <h2 class="settings-title">Display</h2>
+          <div class="setting-row">
+            <div class="setting-info"><span class="setting-label">Chart Buffer Size</span><span class="setting-desc">Data points to display in charts</span></div>
+            <select class="form-select" id="bufferSize" style="max-width:120px"><option value="100">100 pts</option><option value="200" selected>200 pts</option><option value="500">500 pts</option></select>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><span class="setting-label">Motion Alert Threshold</span><span class="setting-desc">Gyro magnitude to trigger alert (°/s)</span></div>
+            <input type="number" class="form-input" id="motionThreshold" value="100" min="10" max="250" style="max-width:100px"/>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><span class="setting-label">Temperature Alert</span><span class="setting-desc">Alert above this temp (°C)</span></div>
+            <input type="number" class="form-input" id="tempThreshold" value="40" min="30" max="50" style="max-width:100px"/>
+          </div>
+        </div>
+        <div class="settings-card" id="deviceInfoCard">
+          <h2 class="settings-title">Device Information</h2>
+          <div class="device-info-grid">
+            <div class="dinfo-row"><span class="dinfo-label">Device</span><span class="dinfo-val mono" id="dDevice">—</span></div>
+            <div class="dinfo-row"><span class="dinfo-label">Firmware</span><span class="dinfo-val mono" id="dFirmware">—</span></div>
+            <div class="dinfo-row"><span class="dinfo-label">MAC Address</span><span class="dinfo-val mono" id="dMAC">—</span></div>
+            <div class="dinfo-row"><span class="dinfo-label">AP IP</span><span class="dinfo-val mono" id="dIP">—</span></div>
+            <div class="dinfo-row"><span class="dinfo-label">Sensor</span><span class="dinfo-val mono" id="dSensor">—</span></div>
+            <div class="dinfo-row"><span class="dinfo-label">Uptime</span><span class="dinfo-val mono" id="dUptime">—</span></div>
+            <div class="dinfo-row"><span class="dinfo-label">Free Heap</span><span class="dinfo-val mono" id="dHeap">—</span></div>
+          </div>
+          <button class="btn-secondary" id="refreshDeviceInfo" style="width:100%;margin-top:1rem">Refresh Info</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ═══ TOAST NOTIFICATIONS ═══════════════════════════════════════════════ -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ═══ SCRIPTS ════════════════════════════════════════════════════════════ -->
+<script src="js/connection.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/session.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/doctor-portal.js"></script>
+<script src="js/patient-portal.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
