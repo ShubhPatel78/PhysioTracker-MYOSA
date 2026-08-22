@@ -76,14 +76,19 @@ MYOSA 6.0 PhysioPulse/
    PhysioPulse is READY!
    ```
 
-### 4. Access the Web App
+### 4. Run the Web App & Connect via Bluetooth (BLE)
 
-1. On your **phone or laptop**, go to WiFi settings
-2. Connect to the network: **PhysioPulse-XXXX** (XXXX = last 4 chars of MAC)
-3. Password: **physio123**
-4. Open browser and go to: **http://192.168.4.1**
-5. The PhysioPulse app loads from the ESP32's flash!
-6. Tap "Add to Home Screen" to install as a PWA
+Since you are running the web app locally, you will connect to the ESP32 using Web Bluetooth instead of WiFi.
+
+1. Open your terminal and navigate to the `webapp` folder.
+2. Start a local server: `python -m http.server 8000` (or use `npx serve`).
+3. Open your Chrome or Edge browser (must support Web Bluetooth) and go to **http://localhost:8000**
+4. Log in or Register in the app.
+5. Once logged in, go to the **Settings** page from the sidebar menu.
+6. Under Connection, ensure **BLE** is selected.
+7. Click **Connect to ESP32**. A browser popup will appear.
+8. Select **PhysioPulse-XXXX** from the list and click Pair.
+9. You are now connected and receiving real-time sensor data over Bluetooth!
 
 ---
 
@@ -144,7 +149,7 @@ MYOSA 6.0 PhysioPulse/
 - **I2C Address:** 0x69 (AD0 = HIGH on MYOSA MPU-6050 board)
 - **Gyro Calibration:** Automatic on boot (500 samples); can retrigger via app
 - **ROM Calculation:** Pitch and Roll from accelerometer via `atan2`; Yaw from gyro integration
-- **BLE:** Available as backup connection mode (Android Chrome only)
+- **BLE:** Primary connection mode when running web app locally (Requires Chrome, Edge, or supported browser).
 
 ---
 

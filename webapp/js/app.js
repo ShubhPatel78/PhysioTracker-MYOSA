@@ -176,7 +176,8 @@ const App = (() => {
     const isESP32Host = host === '192.168.4.1' || host === 'physiopulse.local' || host.startsWith('192.168.4.');
     if (isESP32Host) {
       const wsUrl = `ws://${host}:81`;
-      setTimeout(() => Connection.connect({ mode: 'wifi', url: wsUrl, autoReconnect: true }), 800);
+      // Default to BLE since WiFi is not loading
+      setTimeout(() => Connection.connect({ mode: 'ble', autoReconnect: true }), 800);
       const wsUrlEl = document.getElementById('wsUrl');
       if (wsUrlEl) wsUrlEl.value = wsUrl;
     } else {
