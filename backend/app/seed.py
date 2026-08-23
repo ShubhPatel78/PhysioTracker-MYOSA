@@ -7,7 +7,7 @@ if str(backend_dir) not in sys.path:
 
 from datetime import datetime, timedelta, timezone
 from app.database import SessionLocal, engine, Base
-from app.models import User, Patient, Threshold, ExerciseHistory, SensorSession
+from app.models import User, Patient, Threshold, ExerciseHistory, SensorSession, PainAlert
 from app.auth import hash_password
 
 def seed_database():
@@ -63,6 +63,8 @@ def seed_database():
             motion_limit=120.0,
             temp_limit=39.5,
             exercise_type="Knee Flexion / Extension",
+            video_url="https://www.youtube.com/watch?v=kYJjT6lYqA8",
+            strict_limit=True,
             notes="Focus on controlled motion. Avoid exceeding 110 degrees of flexion.",
         )
         db.add(threshold_1)
@@ -114,6 +116,19 @@ def seed_database():
             ),
         ]
         db.add_all(histories)
+
+        # Sample Pain Alert for Patient 1
+        pain_alert_1 = PainAlert(
+            patient_id=patient_1.id,
+            doctor_id=doctor.id,
+            date=now - timedelta(days=2, hours=1),
+            angle_at_pain=105.0,
+            reps_at_pain=10,
+            pain_level="Moderate",
+            notes="Felt anterior knee tightness and pinching when reaching 105 degrees flexion.",
+            status="new",
+        )
+        db.add(pain_alert_1)
 
         # 3. Create Patient 2 (Jane Miller)
         patient_user_2 = User(

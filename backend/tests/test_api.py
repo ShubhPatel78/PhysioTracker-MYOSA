@@ -226,3 +226,110 @@ def test_sensor_sessions_and_csv(client):
     # Verify deleted
     get_del = client.get(f"/api/sessions/{session_id}")
     assert get_del.status_code == 404
+
+def test_threshold_video_and_strict_limits(client):
+    # 1. Register Doctor & Patient
+    doc_res = client.post("/api/auth/register", json={
+        "name": "Dr. Video Tester",
+        "email": "docvideo@test.com",
+        "password": "password123",
+        "role": "doctor"
+    })
+    doc_data = doc_res.json()
+    doc_token = doc_data["access_token"]
+    doc_code = doc_data["user"]["doctor_code"]
+    doc_headers = {"Authorization": f"Bearer {doc_token}"}
+
+    pat_res = client.post("/api/auth/register", json={
+        "name": "Charlie Video",
+        "email": "charlie@test.com",
+        "password": "password123",
+        "role": "patient",
+        "doctor_code": doc_code
+    })
+    patient_id = pat_res.json()["patient_id"]
+
+    # 2. Doctor sets threshold with YouTube URL and strict limit
+    t_res = client.post(f"/api/patients/{patient_id}/threshold", json={
+        "min_angle": 30.0,
+        "max_angle": 90.0,
+        "target_reps": 10,
+        "motion_limit": 100.0,
+        "temp_limit": 40.0,
+        "exercise_type": "Knee Flexion / Extension",
+        "video_url": "https://www.youtube.com/watch?v=kYJjT6lYqA8",
+        "strict_limit": True,
+        "notes": "Follow video form closely. Do not exceed 90 degrees."
+    }, headers=doc_headers)
+    assert t_res.status_code == 200
+    t_data = t_res.json()
+    assert t_data["video_url"] == "https://www.youtube.com/watch?v=kYJjT6lYqA8"
+    assert t_data["strict_limit"] is True
+    assert t_data["max_angle"] == 90.0
+
+    # 3. Patient fetches threshold
+    pat_token = pat_res.json()["access_token"]
+    pat_headers = {"Authorization": f"Bearer {pat_token}"}
+    pat_t_res = client.get(f"/api/patients/{patient_id}/threshold", headers=pat_headers)
+    assert pat_t_res.status_code == 200
+    assert pat_t_res.json()["video_url"] == "https://www.youtube.com/watch?v=kYJjT6lYqA8"
+
+def test_pain_alerts_flow(client):
+    # 1. Register Doctor & Patient
+    doc_res = client.post("/api/auth/register", json={
+        "name": "Dr. Pain Tester",
+        "email": "docpain@test.com",
+        "password": "password123",
+        "role": "doctor"
+    })
+    doc_data = doc_res.json()
+    doc_headers = {"Authorization": f"Bearer {doc_data['access_token']}"}
+    doc_code = doc_data["user"]["doctor_code"]
+
+    pat_res = client.post("/api/auth/register", json={
+        "name": "David Discomfort",
+        "email": "david@test.com",
+        "password": "password123",
+        "role": "patient",
+        "doctor_code": doc_code
+    })
+    pat_data = pat_res.json()
+    patient_id = pat_data["patient_id"]
+    pat_headers = {"Authorization": f"Bearer {pat_data['access_token']}"}
+
+    # 2. Patient creates a Pain Alert
+    alert_res = client.post(f"/api/patients/{patient_id}/pain-alert", json={
+        "patient_id": patient_id,
+        "angle_at_pain": 72.5,
+        "reps_at_pain": 6,
+        "pain_level": "Moderate",
+        "notes": "Sharp pinching feeling in joint above 70 degrees"
+    }, headers=pat_headers)
+    assert alert_res.status_code == 200
+    alert_data = alert_res.json()
+    alert_id = alert_data["id"]
+    assert alert_data["angle_at_pain"] == 72.5
+    assert alert_data["reps_at_pain"] == 6
+    assert alert_data["pain_level"] == "Moderate"
+    assert alert_data["status"] == "new"
+
+    # 3. Doctor checks pain alerts list
+    doc_alerts_res = client.get("/api/doctor/pain-alerts", headers=doc_headers)
+    assert doc_alerts_res.status_code == 200
+    doc_alerts = doc_alerts_res.json()
+    assert len(doc_alerts) == 1
+    assert doc_alerts[0]["patient_name"] == "David Discomfort"
+    assert doc_alerts[0]["notes"] == "Sharp pinching feeling in joint above 70 degrees"
+
+    # 4. Patient views their own pain alerts
+    pat_alerts_res = client.get(f"/api/patients/{patient_id}/pain-alerts", headers=pat_headers)
+    assert pat_alerts_res.status_code == 200
+    assert len(pat_alerts_res.json()) == 1
+
+    # 5. Doctor resolves the pain alert
+    resolve_res = client.put(f"/api/pain-alerts/{alert_id}/resolve", json={
+        "status": "reviewed"
+    }, headers=doc_headers)
+    assert resolve_res.status_code == 200
+    assert resolve_res.json()["status"] == "reviewed"
+

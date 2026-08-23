@@ -60,6 +60,8 @@ class ThresholdCreate(BaseModel):
     motion_limit: float = Field(100.0, ge=0)
     temp_limit: float = Field(40.0, ge=0)
     exercise_type: str = "Knee Flexion / Extension"
+    video_url: Optional[str] = None
+    strict_limit: bool = True
     notes: Optional[str] = ""
 
 class ThresholdResponse(BaseModel):
@@ -74,9 +76,37 @@ class ThresholdResponse(BaseModel):
     motion_limit: float
     temp_limit: float
     exercise_type: str
+    video_url: Optional[str] = None
+    strict_limit: bool = True
     notes: Optional[str] = ""
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+# ─── Pain Alert Schemas ─────────────────────────────────────────────────────
+class PainAlertCreate(BaseModel):
+    patient_id: Optional[int] = None
+    angle_at_pain: Optional[float] = None
+    reps_at_pain: int = 0
+    pain_level: str = "Moderate"
+    notes: Optional[str] = ""
+
+class PainAlertResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    patient_id: int
+    doctor_id: int
+    patient_name: Optional[str] = None
+    date: datetime
+    angle_at_pain: Optional[float] = None
+    reps_at_pain: int = 0
+    pain_level: str
+    notes: Optional[str] = ""
+    status: str = "new"
+    created_at: Optional[datetime] = None
+
+class PainAlertResolve(BaseModel):
+    status: str = "reviewed"
 
 # ─── Exercise History Schemas ───────────────────────────────────────────────
 class ExerciseHistoryCreate(BaseModel):

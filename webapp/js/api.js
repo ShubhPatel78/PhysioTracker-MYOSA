@@ -206,6 +206,29 @@ const API = (() => {
     return request('/api/sessions', { method: 'DELETE' });
   }
 
+  // ─── Pain Alerts API ───────────────────────────────────────────────────
+  async function sendPainAlert(patientId, data) {
+    return request(`/api/patients/${patientId}/pain-alert`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async function getPatientPainAlerts(patientId) {
+    return request(`/api/patients/${patientId}/pain-alerts`);
+  }
+
+  async function getDoctorPainAlerts() {
+    return request('/api/doctor/pain-alerts');
+  }
+
+  async function resolvePainAlert(alertId, status = 'reviewed') {
+    return request(`/api/pain-alerts/${alertId}/resolve`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+  }
+
   function getCsvUrl(sessionId) {
     return `${getBaseUrl()}/api/sessions/${sessionId}/csv`;
   }
@@ -234,6 +257,11 @@ const API = (() => {
     saveExerciseRecord,
     getExerciseHistory,
     getPatientAnalytics,
+    // Pain Alerts
+    sendPainAlert,
+    getPatientPainAlerts,
+    getDoctorPainAlerts,
+    resolvePainAlert,
     // Sessions
     saveSession,
     getSessions,

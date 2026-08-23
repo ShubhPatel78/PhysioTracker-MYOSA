@@ -412,6 +412,8 @@ const Auth = (() => {
           motion_limit: thresholdObj.motionLimit,
           temp_limit: thresholdObj.tempLimit,
           exercise_type: thresholdObj.exerciseType,
+          video_url: thresholdObj.video_url || thresholdObj.videoUrl || '',
+          strict_limit: thresholdObj.strict_limit !== undefined ? thresholdObj.strict_limit : (thresholdObj.strictLimit !== undefined ? thresholdObj.strictLimit : true),
           notes: thresholdObj.notes || '',
         });
         const norm = {
@@ -424,6 +426,10 @@ const Auth = (() => {
           motionLimit: saved.motion_limit,
           tempLimit: saved.temp_limit,
           exerciseType: saved.exercise_type,
+          videoUrl: saved.video_url,
+          video_url: saved.video_url,
+          strictLimit: saved.strict_limit,
+          strict_limit: saved.strict_limit,
           notes: saved.notes,
           createdAt: saved.created_at,
           updatedAt: saved.updated_at,
@@ -462,6 +468,10 @@ const Auth = (() => {
             motionLimit: t.motion_limit,
             tempLimit: t.temp_limit,
             exerciseType: t.exercise_type,
+            videoUrl: t.video_url,
+            video_url: t.video_url,
+            strictLimit: t.strict_limit,
+            strict_limit: t.strict_limit,
             notes: t.notes,
             createdAt: t.created_at,
             updatedAt: t.updated_at,
@@ -492,6 +502,10 @@ const Auth = (() => {
             motionLimit: t.motion_limit,
             tempLimit: t.temp_limit,
             exerciseType: t.exercise_type,
+            videoUrl: t.video_url,
+            video_url: t.video_url,
+            strictLimit: t.strict_limit,
+            strict_limit: t.strict_limit,
             notes: t.notes,
             createdAt: t.created_at,
             updatedAt: t.updated_at,
@@ -502,6 +516,7 @@ const Auth = (() => {
       console.warn('[Auth] getThresholdHistoryForPatient API error:', e.message);
     }
     const all = await dbGetByIndex(STORES.THRESHOLDS, 'patientId', patientId);
+    if (!all) return [];
     return all.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
   }
 

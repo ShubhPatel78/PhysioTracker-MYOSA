@@ -54,6 +54,8 @@ def save_threshold(
         motion_limit=data.motion_limit,
         temp_limit=data.temp_limit,
         exercise_type=data.exercise_type,
+        video_url=data.video_url or "",
+        strict_limit=data.strict_limit if data.strict_limit is not None else True,
         notes=data.notes or "",
     )
     db.add(threshold)

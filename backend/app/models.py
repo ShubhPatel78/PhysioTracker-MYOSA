@@ -41,6 +41,7 @@ class Patient(Base):
     thresholds = relationship("Threshold", back_populates="patient", cascade="all, delete-orphan")
     exercise_history = relationship("ExerciseHistory", back_populates="patient", cascade="all, delete-orphan")
     sensor_sessions = relationship("SensorSession", back_populates="patient", cascade="all, delete-orphan")
+    pain_alerts = relationship("PainAlert", back_populates="patient", cascade="all, delete-orphan")
 
 class Threshold(Base):
     __tablename__ = "thresholds"
@@ -54,12 +55,32 @@ class Threshold(Base):
     motion_limit = Column(Float, default=100.0)
     temp_limit = Column(Float, default=40.0)
     exercise_type = Column(String(255), default="Knee Flexion / Extension")
+    video_url = Column(String(500), nullable=True)  # YouTube demo link
+    strict_limit = Column(Boolean, default=True)    # Don't exceed max angle / reps
     notes = Column(Text, default="")
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
     patient = relationship("Patient", back_populates="thresholds")
+    doctor = relationship("User", foreign_keys=[doctor_id])
+
+class PainAlert(Base):
+    __tablename__ = "pain_alerts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, index=True)
+    doctor_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    date = Column(DateTime, default=utc_now, index=True)
+    angle_at_pain = Column(Float, nullable=True)
+    reps_at_pain = Column(Integer, default=0)
+    pain_level = Column(String(50), default="Moderate")  # e.g. "Mild", "Moderate", "Severe" or 1-10
+    notes = Column(Text, default="")
+    status = Column(String(50), default="new")  # "new", "reviewed", "contacted"
+    created_at = Column(DateTime, default=utc_now)
+
+    # Relationships
+    patient = relationship("Patient", back_populates="pain_alerts")
     doctor = relationship("User", foreign_keys=[doctor_id])
 
 class ExerciseHistory(Base):

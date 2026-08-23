@@ -77,6 +77,9 @@ const App = (() => {
     if (page === 'doctor-patients') {
       _refreshDoctorPatients();
     }
+    if (page === 'patient-exercise') {
+      PatientPortal.renderExercisePage();
+    }
     if (page === 'patient-history') {
       PatientPortal.renderPatientHistory();
     }

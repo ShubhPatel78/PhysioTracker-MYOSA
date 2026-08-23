@@ -1458,22 +1458,123 @@ body::before {
    RESPONSIVE OVERRIDES
    ═══════════════════════════════════════════════════════════════════════════ */
 
-@media (max-width: 1100px) {
-  .dp-layout       { grid-template-columns: 1fr; }
-  .exercise-layout { grid-template-columns: 1fr; }
+.btn-pain {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-pain:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: #ef4444;
+  color: #fff;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.3);
+}
+.btn-pain svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+.exercise-alert.critical-alert {
+  background: rgba(239, 68, 68, 0.22);
+  border: 2px solid #ef4444;
+  color: #fee2e2;
+  font-weight: 700;
+  animation: criticalPulse 0.6s infinite alternate;
+}
+@keyframes criticalPulse {
+  from { box-shadow: 0 0 8px rgba(239,68,68,0.4); }
+  to { box-shadow: 0 0 20px rgba(239,68,68,0.8); }
 }
 
-@media (max-width: 768px) {
-  .patient-cards-grid { grid-template-columns: 1fr; }
-  .pt-stats-row       { grid-template-columns: 1fr 1fr 1fr; }
-  .doctor-welcome-bar { flex-direction: column; align-items: flex-start; }
-  .thresh-grid        { grid-template-columns: 1fr; }
-  .tdc-grid           { flex-direction: column; }
-  .auth-card          { padding: 2rem 1.5rem; }
+.pain-alerts-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+.pain-alert-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 10px;
+  padding: 0.85rem 1.25rem;
+  transition: all 0.2s ease;
+}
+.pain-alert-card.reviewed {
+  opacity: 0.5;
+  border-color: rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.02);
+}
+.pain-alert-info { display: flex; flex-direction: column; gap: 0.2rem; }
+.pain-alert-header { display: flex; align-items: center; gap: 0.5rem; }
+.pain-alert-patient { font-weight: 700; color: #fff; font-size: 0.95rem; }
+.pain-severity-pill {
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.pain-severity-pill.Mild { background: rgba(245,158,11,0.2); color: #fde68a; border: 1px solid rgba(245,158,11,0.4); }
+.pain-severity-pill.Moderate { background: rgba(239,68,68,0.2); color: #fca5a5; border: 1px solid rgba(239,68,68,0.4); }
+.pain-severity-pill.Severe { background: rgba(220,38,38,0.35); color: #fee2e2; border: 1px solid #dc2626; }
+.pain-alert-meta { font-size: 0.8rem; color: rgba(255,255,255,0.5); }
+.pain-alert-notes { font-size: 0.82rem; color: rgba(255,255,255,0.8); font-style: italic; margin-top: 0.2rem; }
+
+.badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  border-radius: 12px;
+  padding: 0.1rem 0.5rem;
+  min-width: 20px;
 }
 
-@media (max-width: 520px) {
-  .pt-stats-row        { grid-template-columns: 1fr; }
-  .exercise-live-stats { grid-template-columns: 1fr 1fr; }
+.pain-level-btn.active {
+  background: rgba(239, 68, 68, 0.25) !important;
+  border-color: #ef4444 !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+
+.video-card { overflow: hidden; padding: 0; }
+.video-card .chart-card-header { padding: 0.85rem 1.25rem; }
+.video-embed-wrap {
+  position: relative;
+  width: 100%;
+  padding-bottom: 56.25%; /* 16:9 Aspect Ratio */
+  height: 0;
+  background: #000;
+}
+.video-embed-wrap iframe {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  border: none;
+}
+
+.modal-celebration {
+  background: radial-gradient(circle at 50% 0%, rgba(34,197,94,0.15), var(--bg-card) 70%) !important;
+  border: 1px solid rgba(34,197,94,0.3) !important;
+}
+
+@keyframes bounce {
+  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-12px); }
+  60% { transform: translateY(-6px); }
 }
 

@@ -1,7 +1,10 @@
 /**
  * PhysioPulse – Doctor Portal Module
- * Manages: patient list, first-time baseline data entry, threshold management,
- * patient history view, threshold history.
+ * Manages:
+ * - Patient list & profiles
+ * - Exercise threshold management + YouTube demo video link
+ * - Real-time & persisted Patient Pain & Limitation Alerts
+ * - Historical compliance & exercise sessions
  */
 
 const DoctorPortal = (() => {
@@ -16,7 +19,7 @@ const DoctorPortal = (() => {
 
   // ─── Doctor Dashboard ─────────────────────────────────────────────────────
   async function renderDoctorDashboard() {
-    // Update doctor info in the UI
+    // Update doctor info in UI
     const nameEl = document.getElementById('doctorName');
     const codeEl = document.getElementById('doctorCode');
     if (nameEl) nameEl.textContent = session.name;
@@ -27,13 +30,83 @@ const DoctorPortal = (() => {
     const countEl = document.getElementById('doctorPatientCount');
     if (countEl) countEl.textContent = patients.length;
 
-    // Recent alerts
+    // Render Pain & Limitation Alerts
+    await renderPainAlerts();
+
+    // Render General Activity Alerts
     await renderRecentAlerts(patients);
 
     // Patient list in doctor dashboard
     await renderPatientCards(patients);
   }
 
+  // ─── Pain Alerts ──────────────────────────────────────────────────────────
+  async function renderPainAlerts() {
+    const listEl = document.getElementById('doctorPainAlertsList');
+    const badgeEl = document.getElementById('doctorPainBadge');
+    if (!listEl) return;
+
+    let alerts = [];
+    try {
+      if (typeof API !== 'undefined') {
+        alerts = await API.getDoctorPainAlerts();
+      }
+    } catch (e) {
+      console.warn('[DoctorPortal] Could not load pain alerts from API:', e.message);
+    }
+
+    const newAlerts = alerts.filter(a => a.status === 'new');
+    if (badgeEl) {
+      if (newAlerts.length > 0) {
+        badgeEl.textContent = newAlerts.length;
+        badgeEl.classList.remove('hidden');
+      } else {
+        badgeEl.classList.add('hidden');
+      }
+    }
+
+    if (alerts.length === 0) {
+      listEl.innerHTML = `<div class="empty-mini">No pain alerts reported – all patients comfortable ✓</div>`;
+      return;
+    }
+
+    listEl.innerHTML = alerts.slice(0, 8).map(a => `
+      <div class="pain-alert-card ${a.status === 'reviewed' ? 'reviewed' : ''}" data-id="${a.id}">
+        <div class="pain-alert-info">
+          <div class="pain-alert-header">
+            <span class="pain-alert-patient">🚨 ${a.patient_name || 'Patient'}</span>
+            <span class="pain-severity-pill ${a.pain_level || 'Moderate'}">${a.pain_level || 'Moderate'}</span>
+            <span style="font-size:0.75rem;color:rgba(255,255,255,0.4)">${new Date(a.date).toLocaleString()}</span>
+          </div>
+          <div class="pain-alert-meta">
+            Felt at <strong>${a.angle_at_pain != null ? a.angle_at_pain.toFixed(1) + '°' : '—'}</strong> joint angle (Rep <strong>${a.reps_at_pain || 0}</strong>)
+          </div>
+          ${a.notes ? `<div class="pain-alert-notes">"${a.notes}"</div>` : ''}
+        </div>
+        <div>
+          ${a.status === 'new' ? `
+            <button type="button" class="btn-secondary btn-sm" onclick="DoctorPortal.markAlertReviewed(${a.id})" style="font-size:0.75rem;padding:0.4rem 0.75rem;white-space:nowrap">
+              ✓ Mark Reviewed
+            </button>
+          ` : `<span style="font-size:0.75rem;color:#22c55e">✓ Reviewed</span>`}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function markAlertReviewed(alertId) {
+    try {
+      if (typeof API !== 'undefined') {
+        await API.resolvePainAlert(alertId, 'reviewed');
+      }
+      App.showToast('Pain alert marked as reviewed', 'success');
+      await renderPainAlerts();
+    } catch (e) {
+      App.showToast('Error updating alert', 'error');
+    }
+  }
+
+  // ─── Recent Activity Alerts ────────────────────────────────────────────────
   async function renderRecentAlerts(patients) {
     const alertsEl = document.getElementById('doctorAlertsList');
     if (!alertsEl) return;
@@ -51,7 +124,7 @@ const DoctorPortal = (() => {
     const recent = alerts.slice(0, 5);
 
     if (recent.length === 0) {
-      alertsEl.innerHTML = `<div class="empty-mini">No alerts – all patients on track ✓</div>`;
+      alertsEl.innerHTML = `<div class="empty-mini">No activity alerts – all patients on track ✓</div>`;
       return;
     }
 
@@ -63,6 +136,7 @@ const DoctorPortal = (() => {
     `).join('');
   }
 
+  // ─── Patient Cards ────────────────────────────────────────────────────────
   async function renderPatientCards(patients) {
     const listEl = document.getElementById('doctorPatientCards');
     if (!listEl) return;
@@ -101,9 +175,10 @@ const DoctorPortal = (() => {
           </div>
           <div class="pc-thresholds">
             ${threshold ? `
-              <span class="pc-thresh-item">Min Angle: <strong>${threshold.minAngle}°</strong></span>
-              <span class="pc-thresh-item">Max Angle: <strong>${threshold.maxAngle}°</strong></span>
-              <span class="pc-thresh-item">Target Reps: <strong>${threshold.targetReps}</strong></span>
+              <span class="pc-thresh-item">Min: <strong>${threshold.minAngle}°</strong></span>
+              <span class="pc-thresh-item">Max: <strong>${threshold.maxAngle}°</strong></span>
+              <span class="pc-thresh-item">Reps: <strong>${threshold.targetReps}</strong></span>
+              ${threshold.video_url || threshold.videoUrl ? '<span class="pc-thresh-item" style="color:#00d4ff">📹 Demo Video</span>' : ''}
             ` : `<span class="pc-thresh-none">No thresholds set yet</span>`}
           </div>
           <div class="pc-footer">
@@ -146,13 +221,17 @@ const DoctorPortal = (() => {
       _setVal('dpMotionLimit', threshold.motionLimit || 100);
       _setVal('dpTempLimit', threshold.tempLimit || 40);
       _setVal('dpExerciseType', threshold.exerciseType || 'Knee Flexion / Extension');
+      _setVal('dpVideoUrl', threshold.video_url || threshold.videoUrl || '');
       _setVal('dpNotes', threshold.notes || '');
+      const strictEl = document.getElementById('dpStrictLimit');
+      if (strictEl) strictEl.checked = threshold.strict_limit !== false;
     } else {
       _setVal('dpMinAngle', 30);
       _setVal('dpMaxAngle', 120);
       _setVal('dpTargetReps', 10);
       _setVal('dpMotionLimit', 100);
       _setVal('dpTempLimit', 40);
+      _setVal('dpVideoUrl', '');
       _setVal('dpNotes', '');
     }
 
@@ -224,10 +303,11 @@ const DoctorPortal = (() => {
 
     el.innerHTML = history.map((t, i) => `
       <div class="thresh-history-item ${i === 0 ? 'current' : ''}">
-        <div class="thi-date">${new Date(t.updatedAt).toLocaleString()} ${i === 0 ? '<span class="current-badge">Current</span>' : ''}</div>
+        <div class="thi-date">${new Date(t.updatedAt || t.created_at).toLocaleString()} ${i === 0 ? '<span class="current-badge">Current</span>' : ''}</div>
         <div class="thi-values">
-          Min: ${t.minAngle}° · Max: ${t.maxAngle}° · Reps: ${t.targetReps} · Motion: ${t.motionLimit || 100}°/s
+          Min: ${t.minAngle || t.min_angle}° · Max: ${t.maxAngle || t.max_angle}° · Reps: ${t.targetReps || t.target_reps} · Motion: ${t.motionLimit || t.motion_limit || 100}°/s
         </div>
+        ${t.video_url || t.videoUrl ? `<div class="thi-notes" style="color:#00d4ff">📹 ${t.video_url || t.videoUrl}</div>` : ''}
         ${t.notes ? `<div class="thi-notes">${t.notes}</div>` : ''}
       </div>
     `).join('');
@@ -245,6 +325,8 @@ const DoctorPortal = (() => {
     const motionLimit= parseFloat(document.getElementById('dpMotionLimit')?.value) || 100;
     const tempLimit  = parseFloat(document.getElementById('dpTempLimit')?.value)  || 40;
     const exerciseType = document.getElementById('dpExerciseType')?.value || 'Knee Flexion / Extension';
+    const videoUrl   = document.getElementById('dpVideoUrl')?.value.trim() || '';
+    const strictLimit= document.getElementById('dpStrictLimit')?.checked ?? true;
     const notes      = document.getElementById('dpNotes')?.value.trim() || '';
 
     if (minAngle >= maxAngle) {
@@ -262,6 +344,9 @@ const DoctorPortal = (() => {
         motionLimit,
         tempLimit,
         exerciseType,
+        video_url: videoUrl,
+        videoUrl,
+        strict_limit: strictLimit,
         notes,
       });
 
@@ -273,7 +358,7 @@ const DoctorPortal = (() => {
         await Auth.updatePatientProfile(patient);
       }
 
-      App.showToast('Thresholds saved successfully!', 'success');
+      App.showToast('Thresholds & YouTube Demo saved successfully!', 'success');
 
       // Refresh threshold history
       const threshHistory = await Auth.getThresholdHistoryForPatient(patientId);
@@ -362,5 +447,5 @@ const DoctorPortal = (() => {
     return `${sec}s`;
   }
 
-  return { init, refresh, openPatientDetail, saveThreshold, savePatientProfile };
+  return { init, refresh, openPatientDetail, saveThreshold, savePatientProfile, markAlertReviewed };
 })();

@@ -6,17 +6,33 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import engine, Base
-from app.routers import auth, patients, thresholds, exercise, sessions
+from app.routers import auth, patients, thresholds, exercise, sessions, alerts
 
-# Create DB tables
+from sqlalchemy import text
+
+def run_migrations():
+    Base.metadata.create_all(bind=engine)
+    with engine.connect() as conn:
+        try:
+            res = conn.execute(text("PRAGMA table_info(thresholds)")).fetchall()
+            col_names = [r[1] for r in res]
+            if "video_url" not in col_names:
+                conn.execute(text("ALTER TABLE thresholds ADD COLUMN video_url VARCHAR(500) DEFAULT ''"))
+            if "strict_limit" not in col_names:
+                conn.execute(text("ALTER TABLE thresholds ADD COLUMN strict_limit BOOLEAN DEFAULT 1"))
+            conn.commit()
+        except Exception as e:
+            print("[Migration] Note:", e)
+
+# Create DB tables & run migrations
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    run_migrations()
     yield
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="PhysioPulse Backend API – Patient history, exercise metrics, doctor prescriptions and sensor sessions",
+    description="PhysioPulse Backend API – Patient history, exercise metrics, doctor prescriptions, pain alerts, and sensor sessions",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -36,6 +52,7 @@ app.include_router(patients.router)
 app.include_router(thresholds.router)
 app.include_router(exercise.router)
 app.include_router(sessions.router)
+app.include_router(alerts.router)
 
 @app.get("/api/health")
 def health_check():
