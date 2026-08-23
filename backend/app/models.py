@@ -54,7 +54,7 @@ class Threshold(Base):
     target_reps = Column(Integer, default=10)
     motion_limit = Column(Float, default=100.0)
     temp_limit = Column(Float, default=40.0)
-    exercise_type = Column(String(255), default="Knee Flexion / Extension")
+    exercise_type = Column(String(255), default="Bicep Curl")
     video_url = Column(String(500), nullable=True)  # YouTube demo link
     strict_limit = Column(Boolean, default=True)    # Don't exceed max angle / reps
     notes = Column(Text, default="")

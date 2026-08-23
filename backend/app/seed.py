@@ -47,13 +47,13 @@ def seed_database():
             doctor_id=doctor.id,
             name="John Doe",
             age=42,
-            condition="ACL Reconstruction Rehabilitation",
+            condition="Hand & Arm Mobility Rehabilitation",
             has_baseline_data=True,
         )
         db.add(patient_1)
         db.flush()
 
-        # Threshold for Patient 1
+        # Threshold for Patient 1 (Hand / Bicep Curl)
         threshold_1 = Threshold(
             patient_id=patient_1.id,
             doctor_id=doctor.id,
@@ -62,10 +62,10 @@ def seed_database():
             target_reps=12,
             motion_limit=120.0,
             temp_limit=39.5,
-            exercise_type="Knee Flexion / Extension",
-            video_url="https://www.youtube.com/watch?v=kYJjT6lYqA8",
+            exercise_type="Bicep Curl",
+            video_url="https://www.youtube.com/watch?v=in7PaeYlhrM",
             strict_limit=True,
-            notes="Focus on controlled motion. Avoid exceeding 110 degrees of flexion.",
+            notes="Controlled bicep curl. Keep wrist aligned and avoid jerky movements.",
         )
         db.add(threshold_1)
 
@@ -83,8 +83,8 @@ def seed_database():
                 avg_temp=36.8,
                 duration_s=180,
                 status="completed",
-                exercise_type="Knee Flexion / Extension",
-                notes="Good progress, no joint discomfort reported.",
+                exercise_type="Bicep Curl",
+                notes="Good elbow flexion ROM, smooth rep rhythm.",
             ),
             ExerciseHistory(
                 patient_id=patient_1.id,
@@ -97,8 +97,8 @@ def seed_database():
                 avg_temp=37.1,
                 duration_s=165,
                 status="partial",
-                exercise_type="Knee Flexion / Extension",
-                notes="Felt mild fatigue after rep 10.",
+                exercise_type="Bicep Curl",
+                notes="Felt mild forearm muscle fatigue after rep 10.",
             ),
             ExerciseHistory(
                 patient_id=patient_1.id,
@@ -106,13 +106,13 @@ def seed_database():
                 date=now - timedelta(hours=6),
                 reps_completed=12,
                 target_reps=12,
-                max_angle_reached=112.0,
+                max_angle_reached=110.0,
                 min_angle_reached=30.5,
                 avg_temp=36.9,
                 duration_s=195,
                 status="completed",
-                exercise_type="Knee Flexion / Extension",
-                notes="Target reps achieved smoothly with full ROM.",
+                exercise_type="Bicep Curl",
+                notes="Target reps achieved smoothly with full elbow flexion ROM.",
             ),
         ]
         db.add_all(histories)
@@ -125,7 +125,7 @@ def seed_database():
             angle_at_pain=105.0,
             reps_at_pain=10,
             pain_level="Moderate",
-            notes="Felt anterior knee tightness and pinching when reaching 105 degrees flexion.",
+            notes="Felt forearm tightness and wrist discomfort when flexing past 105 degrees.",
             status="new",
         )
         db.add(pain_alert_1)
@@ -159,8 +159,10 @@ def seed_database():
             target_reps=10,
             motion_limit=90.0,
             temp_limit=38.0,
-            exercise_type="Shoulder Abduction",
-            notes="Gentle arm raises up to 90 degrees.",
+            exercise_type="Wrist Circle / Rotation",
+            video_url="https://www.youtube.com/watch?v=kYJjT6lYqA8",
+            strict_limit=True,
+            notes="Gentle wrist rotation and arm raises up to 90 degrees.",
         )
         db.add(threshold_2)
 
@@ -175,8 +177,8 @@ def seed_database():
             avg_temp=36.6,
             duration_s=150,
             status="completed",
-            exercise_type="Shoulder Abduction",
-            notes="Completed full protocol with good stability.",
+            exercise_type="Wrist Circle / Rotation",
+            notes="Completed full wrist rotation protocol with good stability.",
         )
         db.add(history_jane)
 

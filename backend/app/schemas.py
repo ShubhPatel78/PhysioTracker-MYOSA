@@ -59,7 +59,7 @@ class ThresholdCreate(BaseModel):
     target_reps: int = Field(10, ge=1, le=1000)
     motion_limit: float = Field(100.0, ge=0)
     temp_limit: float = Field(40.0, ge=0)
-    exercise_type: str = "Knee Flexion / Extension"
+    exercise_type: str = "Bicep Curl"
     video_url: Optional[str] = None
     strict_limit: bool = True
     notes: Optional[str] = ""

@@ -97,7 +97,7 @@ def test_doctor_and_patient_flow(client):
         "target_reps": 15,
         "motion_limit": 110.0,
         "temp_limit": 39.0,
-        "exercise_type": "Knee Flexion / Extension",
+        "exercise_type": "Bicep Curl",
         "notes": "Post-op Week 3 target protocol"
     }, headers=doc_headers)
     assert thresh_res.status_code == 200
@@ -120,7 +120,7 @@ def test_doctor_and_patient_flow(client):
         "avg_temp": 36.8,
         "duration_s": 240,
         "status": "completed",
-        "exercise_type": "Knee Flexion / Extension",
+        "exercise_type": "Bicep Curl",
         "notes": "Felt good throughout session"
     }, headers=pat_headers)
     assert ex_res.status_code == 200
@@ -138,7 +138,7 @@ def test_doctor_and_patient_flow(client):
         "avg_temp": 37.0,
         "duration_s": 120,
         "status": "partial",
-        "exercise_type": "Knee Flexion / Extension",
+        "exercise_type": "Bicep Curl",
         "notes": "Fatigued"
     }, headers=pat_headers)
 
@@ -163,13 +163,13 @@ def test_doctor_and_patient_flow(client):
     update_res = client.put(f"/api/patients/{patient_id}", json={
         "name": "Alice Patient Updated",
         "age": 35,
-        "condition": "Post-Op Knee Rehab Phase 2",
+        "condition": "Post-Op Arm Rehab Phase 2",
         "has_baseline_data": True
     }, headers=doc_headers)
     assert update_res.status_code == 200
     updated_data = update_res.json()
     assert updated_data["age"] == 35
-    assert updated_data["condition"] == "Post-Op Knee Rehab Phase 2"
+    assert updated_data["condition"] == "Post-Op Arm Rehab Phase 2"
 
     # 12. Doctor gets threshold history
     client.post(f"/api/patients/{patient_id}/threshold", json={
@@ -178,7 +178,7 @@ def test_doctor_and_patient_flow(client):
         "target_reps": 20,
         "motion_limit": 120.0,
         "temp_limit": 39.0,
-        "exercise_type": "Knee Flexion / Extension",
+        "exercise_type": "Bicep Curl",
         "notes": "Progression to Week 4"
     }, headers=doc_headers)
     thresh_hist_res = client.get(f"/api/patients/{patient_id}/thresholds", headers=doc_headers)
@@ -256,7 +256,7 @@ def test_threshold_video_and_strict_limits(client):
         "target_reps": 10,
         "motion_limit": 100.0,
         "temp_limit": 40.0,
-        "exercise_type": "Knee Flexion / Extension",
+        "exercise_type": "Bicep Curl",
         "video_url": "https://www.youtube.com/watch?v=kYJjT6lYqA8",
         "strict_limit": True,
         "notes": "Follow video form closely. Do not exceed 90 degrees."
