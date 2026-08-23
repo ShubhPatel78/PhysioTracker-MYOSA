@@ -137,8 +137,13 @@ const Auth = (() => {
     }
 
     const prefix = role === 'doctor' ? 'DR' : 'PT';
+    const secureInt = () => {
+      const arr = new Uint32Array(1);
+      crypto.getRandomValues(arr);
+      return arr[0];
+    };
     for (let i = 0; i < 15; i++) {
-      const candidate = `${prefix}${Math.floor(100000 + Math.random() * 900000)}`;
+      const candidate = `${prefix}${String(secureInt() % 1000000).padStart(6, '0')}`;
       const existing = await getUserByLoginId(candidate);
       if (!existing) return candidate;
     }
