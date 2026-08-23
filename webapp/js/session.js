@@ -1,6 +1,6 @@
 /**
  * PhysioPulse – Session Manager
- * Handles recording, IndexedDB storage, history, and CSV export
+ * Handles recording, backend API persistence, IndexedDB caching, history, and CSV export
  */
 
 const Session = (() => {
@@ -38,28 +38,116 @@ const Session = (() => {
     });
   }
 
-  function saveSession(session) {
+  async function saveSessionToStorage(session) {
+    let backendId = null;
+    try {
+      if (typeof API !== 'undefined') {
+        const saved = await API.saveSession({
+          patient: session.patient,
+          patient_name: session.patient,
+          exercise: session.exercise,
+          notes: session.notes,
+          patient_id: session.patientId || null,
+          date: session.date,
+          duration_s: session.duration_s,
+          interval_ms: session.interval_ms,
+          stats: session.stats,
+          rows: session.rows,
+        });
+        if (saved && saved.id) {
+          backendId = saved.id;
+        }
+      }
+    } catch (e) {
+      console.warn('[Session] Backend save error, saving locally:', e.message);
+    }
+
     return new Promise((resolve, reject) => {
+      if (!db) return resolve(backendId || Date.now());
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
-      const req = store.add(session);
+      const toSave = backendId ? { ...session, id: backendId } : session;
+      const req = store.put(toSave);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(backendId || Date.now());
+    });
+  }
+
+  async function getAllSessions() {
+    try {
+      if (typeof API !== 'undefined') {
+        const list = await API.getSessions();
+        if (Array.isArray(list)) {
+          return list.map(s => ({
+            id: s.id,
+            patient: s.patient_name,
+            exercise: s.exercise,
+            notes: s.notes,
+            date: s.date,
+            duration_s: s.duration_s,
+            interval_ms: s.interval_ms,
+            stats: s.stats || { dataPoints: s.data_points },
+            rows: [],
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn('[Session] Backend getAllSessions error, falling back to local DB:', e.message);
+    }
+
+    return new Promise((resolve, reject) => {
+      if (!db) return resolve([]);
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result ? req.result.reverse() : []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function getSessionById(id) {
+    try {
+      if (typeof API !== 'undefined') {
+        const detail = await API.getSessionDetail(id);
+        if (detail) {
+          return {
+            id: detail.id,
+            patient: detail.patient_name,
+            exercise: detail.exercise,
+            notes: detail.notes,
+            date: detail.date,
+            duration_s: detail.duration_s,
+            interval_ms: detail.interval_ms,
+            stats: detail.stats,
+            rows: detail.rows || [],
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('[Session] Backend getSessionById error:', e.message);
+    }
+
+    return new Promise((resolve, reject) => {
+      if (!db) return resolve(null);
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.get(id);
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
   }
 
-  function getAllSessions() {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result.reverse()); // newest first
-      req.onerror = () => reject(req.error);
-    });
-  }
+  async function deleteAllSessions() {
+    try {
+      if (typeof API !== 'undefined') {
+        await API.deleteAllSessions();
+      }
+    } catch (e) {
+      console.warn('[Session] Backend deleteAllSessions error:', e.message);
+    }
 
-  function deleteAllSessions() {
     return new Promise((resolve, reject) => {
+      if (!db) return resolve();
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
       const req = store.clear();
@@ -68,8 +156,17 @@ const Session = (() => {
     });
   }
 
-  function deleteSession(id) {
+  async function deleteSession(id) {
+    try {
+      if (typeof API !== 'undefined') {
+        await API.deleteSession(id);
+      }
+    } catch (e) {
+      console.warn('[Session] Backend deleteSession error:', e.message);
+    }
+
     return new Promise((resolve, reject) => {
+      if (!db) return resolve();
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
       const req = store.delete(id);
@@ -92,6 +189,7 @@ const Session = (() => {
     // Get auth session for userId tagging
     const authSession = typeof Auth !== 'undefined' ? Auth.getSession() : null;
     const userId = authSession?.userId || null;
+    const patientId = authSession?.patientId || null;
 
     // Get patient details from form
     const patientName = document.getElementById('patientNameInput')?.value.trim() || authSession?.name || 'Unknown';
@@ -103,6 +201,7 @@ const Session = (() => {
       exercise,
       notes,
       userId,
+      patientId,
       date: new Date().toISOString(),
       rows: [],
       interval_ms: 50,
@@ -180,12 +279,11 @@ const Session = (() => {
     if (sessionTimer) sessionTimer.classList.remove('recording');
     if (patientSession) patientSession.textContent = 'No active session';
 
-    // Save to DB
-    saveSession(currentSession)
+    // Save to backend & local DB
+    saveSessionToStorage(currentSession)
       .then(id => {
         console.log('[Session] Saved with ID:', id);
         App.showToast(`Session saved! (${currentSession.stats.dataPoints} points)`, 'success');
-        // Refresh history list
         renderHistory();
       })
       .catch(e => {
@@ -249,8 +347,8 @@ const Session = (() => {
       const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
       const dur = s.duration_s ? _formatDuration(s.duration_s) : '—';
       const pts = s.stats?.dataPoints ?? (s.rows?.length ?? 0);
-      const maxA = s.stats?.maxAccelMag?.toFixed(3) ?? '—';
-      const maxG = s.stats?.maxGyroMag?.toFixed(1) ?? '—';
+      const maxA = s.stats?.maxAccelMag != null ? s.stats.maxAccelMag.toFixed(3) : '—';
+      const maxG = s.stats?.maxGyroMag != null ? s.stats.maxGyroMag.toFixed(1) : '—';
 
       return `
         <div class="history-item" data-id="${s.id}" onclick="Session.openPlayback(${s.id})">
@@ -296,8 +394,7 @@ const Session = (() => {
   async function openPlayback(id) {
     let session;
     try {
-      const all = await getAllSessions();
-      session = all.find(s => s.id === id);
+      session = await getSessionById(id);
     } catch (e) {
       App.showToast('Error loading session', 'error');
       return;
@@ -314,7 +411,7 @@ const Session = (() => {
       meta.innerHTML = `
         Date: ${date.toLocaleString()} &nbsp;|&nbsp;
         Duration: ${_formatDuration(session.duration_s)} &nbsp;|&nbsp;
-        Points: ${session.rows?.length ?? 0} &nbsp;|&nbsp;
+        Points: ${session.rows?.length ?? session.stats?.dataPoints ?? 0} &nbsp;|&nbsp;
         Max Accel: ${session.stats?.maxAccelMag ?? '—'} g &nbsp;|&nbsp;
         Avg Temp: ${session.stats?.avgTemp ?? '—'} °C
         ${session.notes ? `<br><em>${session.notes}</em>` : ''}
@@ -335,15 +432,25 @@ const Session = (() => {
   async function downloadCSV(id) {
     let session;
     try {
-      const all = await getAllSessions();
-      session = all.find(s => s.id === id);
+      session = await getSessionById(id);
     } catch (e) { return; }
     if (session) _doDownloadCSV(session);
   }
 
   function _doDownloadCSV(session) {
+    if (!session.rows || session.rows.length === 0) {
+      // If we don't have rows loaded, fetch detail
+      getSessionById(session.id).then(full => {
+        if (full && full.rows) _exportCsvBlob(full);
+      });
+      return;
+    }
+    _exportCsvBlob(session);
+  }
+
+  function _exportCsvBlob(session) {
     const header = 'timestamp_ms,accel_x_g,accel_y_g,accel_z_g,gyro_x_dps,gyro_y_dps,gyro_z_dps,temperature_c\n';
-    const rows = session.rows.map((r, i) => {
+    const rows = (session.rows || []).map((r, i) => {
       const t = r.t || (i * (session.interval_ms || 50));
       return `${t},${r.ax},${r.ay},${r.az},${r.gx},${r.gy},${r.gz},${r.tp}`;
     }).join('\n');
@@ -353,7 +460,7 @@ const Session = (() => {
       `# Patient: ${session.patient}\n`,
       `# Exercise: ${session.exercise}\n`,
       `# Date: ${session.date}\n`,
-      `# Notes: ${session.notes}\n`,
+      `# Notes: ${session.notes || ''}\n`,
       header,
       rows
     ], { type: 'text/csv' });
@@ -361,7 +468,7 @@ const Session = (() => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `PhysioPulse_${session.patient.replace(/\s/g,'_')}_${new Date(session.date).toISOString().slice(0,10)}.csv`;
+    a.download = `PhysioPulse_${(session.patient || 'Patient').replace(/\s/g,'_')}_${new Date(session.date).toISOString().slice(0,10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     App.showToast('CSV downloaded!', 'success');
@@ -397,7 +504,7 @@ const Session = (() => {
   async function init() {
     try {
       await openDB();
-      console.log('[Session] IndexedDB ready');
+      console.log('[Session] Ready');
     } catch (e) {
       console.error('[Session] IndexedDB failed:', e);
     }

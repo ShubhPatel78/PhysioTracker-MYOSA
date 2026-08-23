@@ -1,26 +1,152 @@
 /**
- * PhysioPulse – Auth + Data Module (Supabase backend)
- * Uses userId + password authentication and realtime data access.
+ * PhysioPulse – Auth Module
+ * Handles registration, login, session tokens, and all user/patient/threshold DB stores.
+ * Connects directly to FastAPI backend with automatic IndexedDB caching & offline support.
  */
 
 const Auth = (() => {
-  const SESSION_KEY = 'pp_session';
-  const SESSION_EXPIRY_MS = 8 * 60 * 60 * 1000;
-  const SALT = 'physiopulse_salt_v2';
+  // ─── IndexedDB Config ─────────────────────────────────────────────────────
+  const DB_NAME    = 'PhysioPulseAuth';
+  const DB_VERSION = 2;
+  let db = null;
 
-  let supabase = null;
-  const realtimeChannels = new Set();
+  // Store names
+  const STORES = {
+    USERS:     'users',
+    PATIENTS:  'patients',
+    THRESHOLDS:'thresholds',
+    EX_HISTORY:'exerciseHistory',
+  };
 
-  function getConfig() {
-    const cfg = window.PHYSIOPULSE_CONFIG || {};
-    if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
-      throw new Error('Backend is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in webapp/js/backend-config.js');
-    }
-    return cfg;
+  // ─── DB Open / Upgrade ────────────────────────────────────────────────────
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+
+      req.onupgradeneeded = (e) => {
+        const d = e.target.result;
+
+        // users store
+        if (!d.objectStoreNames.contains(STORES.USERS)) {
+          const us = d.createObjectStore(STORES.USERS, { keyPath: 'id', autoIncrement: true });
+          us.createIndex('email', 'email', { unique: true });
+          us.createIndex('role', 'role', { unique: false });
+        }
+
+        // patients store
+        if (!d.objectStoreNames.contains(STORES.PATIENTS)) {
+          const ps = d.createObjectStore(STORES.PATIENTS, { keyPath: 'id', autoIncrement: true });
+          ps.createIndex('userId',   'userId',   { unique: true });
+          ps.createIndex('doctorId', 'doctorId', { unique: false });
+        }
+
+        // thresholds store
+        if (!d.objectStoreNames.contains(STORES.THRESHOLDS)) {
+          const ts = d.createObjectStore(STORES.THRESHOLDS, { keyPath: 'id', autoIncrement: true });
+          ts.createIndex('patientId', 'patientId', { unique: false });
+          ts.createIndex('doctorId',  'doctorId',  { unique: false });
+        }
+
+        // exercise history store
+        if (!d.objectStoreNames.contains(STORES.EX_HISTORY)) {
+          const hs = d.createObjectStore(STORES.EX_HISTORY, { keyPath: 'id', autoIncrement: true });
+          hs.createIndex('patientId', 'patientId', { unique: false });
+          hs.createIndex('date',      'date',       { unique: false });
+        }
+      };
+
+      req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+      req.onerror   = (e) => reject(e.target.error);
+    });
   }
 
+  // ─── Generic DB Helpers ───────────────────────────────────────────────────
+  function dbAdd(storeName, obj) {
+    return new Promise((resolve, reject) => {
+      if (!db) return resolve(null);
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      const req = store.add(obj);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror   = () => reject(req.error);
+    });
+  }
+
+  function dbPut(storeName, obj) {
+    return new Promise((resolve, reject) => {
+      if (!db) return resolve(null);
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      const req = store.put(obj);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror   = () => reject(req.error);
+    });
+  }
+
+  function dbGet(storeName, key) {
+    return new Promise((resolve, reject) => {
+      if (!db) return resolve(null);
+      const tx = db.transaction(storeName, 'readonly');
+      const store = tx.objectStore(storeName);
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror   = () => reject(req.error);
+    });
+  }
+
+  function dbGetAll(storeName) {
+    return new Promise((resolve, reject) => {
+      if (!db) return resolve([]);
+      const tx = db.transaction(storeName, 'readonly');
+      const store = tx.objectStore(storeName);
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror   = () => reject(req.error);
+    });
+  }
+
+  function dbGetByIndex(storeName, indexName, value) {
+    return new Promise((resolve, reject) => {
+      if (!db) return resolve([]);
+      const tx = db.transaction(storeName, 'readonly');
+      const store = tx.objectStore(storeName);
+      const index = store.index(indexName);
+      const req = index.getAll(value);
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror   = () => reject(req.error);
+    });
+  }
+
+  function dbGetOneByIndex(storeName, indexName, value) {
+    return new Promise((resolve, reject) => {
+      if (!db) return resolve(null);
+      const tx = db.transaction(storeName, 'readonly');
+      const store = tx.objectStore(storeName);
+      const index = store.index(indexName);
+      const req = index.get(value);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror   = () => reject(req.error);
+    });
+  }
+
+  function dbDelete(storeName, key) {
+    return new Promise((resolve, reject) => {
+      if (!db) return resolve();
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      const req = store.delete(key);
+      req.onsuccess = () => resolve();
+      req.onerror   = () => reject(req.error);
+    });
+  }
+
+  // ─── Session Management ───────────────────────────────────────────────────
+  const SESSION_KEY = 'pp_session';
+  const SESSION_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
   function saveSession(session) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, expiry: Date.now() + SESSION_EXPIRY_MS }));
+    const data = { ...session, expiry: Date.now() + SESSION_EXPIRY_MS };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(data));
   }
 
   function getSession() {
@@ -29,7 +155,8 @@ const Auth = (() => {
       if (!raw) return null;
       const data = JSON.parse(raw);
       if (Date.now() > data.expiry) {
-        clearSession();
+        localStorage.removeItem(SESSION_KEY);
+        if (typeof API !== 'undefined') API.setToken(null);
         return null;
       }
       return data;
@@ -40,518 +167,494 @@ const Auth = (() => {
 
   function clearSession() {
     localStorage.removeItem(SESSION_KEY);
+    if (typeof API !== 'undefined') API.setToken(null);
   }
 
-  async function hashPassword(password) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password + SALT);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  function normalizePatient(p) {
-    if (!p) return null;
-    return {
-      id: p.id,
-      userId: p.user_id,
-      doctorId: p.doctor_id,
-      name: p.name,
-      age: p.age,
-      condition: p.condition || '',
-      hasBaselineData: !!p.has_baseline_data,
-      createdAt: p.created_at,
-      updatedAt: p.updated_at,
-    };
-  }
-
-  function normalizeThreshold(t) {
-    if (!t) return null;
-    return {
-      id: t.id,
-      patientId: t.patient_id,
-      doctorId: t.doctor_id,
-      minAngle: t.min_angle,
-      maxAngle: t.max_angle,
-      targetReps: t.target_reps,
-      motionLimit: t.motion_limit,
-      tempLimit: t.temp_limit,
-      exerciseType: t.exercise_type,
-      notes: t.notes || '',
-      createdAt: t.created_at,
-      updatedAt: t.updated_at,
-    };
-  }
-
-  function normalizeExerciseRecord(r) {
-    if (!r) return null;
-    return {
-      id: r.id,
-      patientId: r.patient_id,
-      doctorId: r.doctor_id,
-      date: r.date,
-      repsCompleted: r.reps_completed,
-      targetReps: r.target_reps,
-      maxAngleReached: r.max_angle_reached,
-      minAngleReached: r.min_angle_reached,
-      avgTemp: r.avg_temp,
-      duration_s: r.duration_s,
-      status: r.status,
-      exerciseType: r.exercise_type,
-    };
-  }
-
-  function normalizePrescription(p) {
-    if (!p) return null;
-    return {
-      id: p.id,
-      patientId: p.patient_id,
-      doctorId: p.doctor_id,
-      youtubeUrl: p.youtube_url,
-      title: p.title || '',
-      notes: p.notes || '',
-      isActive: p.is_active,
-      createdAt: p.created_at,
-      updatedAt: p.updated_at,
-    };
-  }
-
-  async function getUserByLoginId(loginId) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('user_id', loginId)
-      .maybeSingle();
-    if (error) throw error;
-    return data;
-  }
-
-  async function generateUniqueLoginId(role, preferredId) {
-    if (preferredId) {
-      const clean = preferredId.trim().toUpperCase();
-      if (!/^[A-Z0-9_-]{4,20}$/.test(clean)) {
-        throw new Error('User ID must be 4-20 chars using letters, numbers, underscore or hyphen');
-      }
-      const existing = await getUserByLoginId(clean);
-      if (existing) throw new Error('This User ID is already taken');
-      return clean;
-    }
-
-    const prefix = role === 'doctor' ? 'DR' : 'PT';
-    const secureInt = () => {
-      const arr = new Uint32Array(1);
-      crypto.getRandomValues(arr);
-      return arr[0];
-    };
-    for (let i = 0; i < 15; i++) {
-      const candidate = `${prefix}${String(secureInt() % 1000000).padStart(6, '0')}`;
-      const existing = await getUserByLoginId(candidate);
-      if (!existing) return candidate;
-    }
-    throw new Error('Unable to allocate a unique User ID. Please try again.');
-  }
-
-  async function register(role, name, preferredUserId, password, doctorUserId) {
-    if (!name || !password) throw new Error('All required fields must be filled');
+  // ─── Registration ─────────────────────────────────────────────────────────
+  async function register(role, name, email, password, doctorCode) {
+    if (!name || !email || !password) throw new Error('All fields are required');
     if (password.length < 6) throw new Error('Password must be at least 6 characters');
 
-    const loginId = await generateUniqueLoginId(role, preferredUserId);
+    try {
+      if (typeof API !== 'undefined') {
+        const res = await API.register(role, name, email, password, doctorCode);
+        const session = {
+          userId: res.user.id,
+          role: res.user.role,
+          name: res.user.name,
+          email: res.user.email,
+          doctorId: res.doctor_id || null,
+          doctorCode: res.user.doctor_code || null,
+          patientId: res.patient_id || null,
+        };
+        saveSession(session);
+        return session;
+      }
+    } catch (apiErr) {
+      // If it's a validation error from the server (e.g. 400), surface it directly
+      if (apiErr.message && !apiErr.message.includes('Failed to fetch') && !apiErr.message.includes('NetworkError')) {
+        throw apiErr;
+      }
+      console.warn('[Auth] Backend registration failed, falling back to local storage:', apiErr);
+    }
 
-    let doctorRow = null;
+    // Local IndexedDB Fallback
+    const existing = await dbGetOneByIndex(STORES.USERS, 'email', email.toLowerCase());
+    if (existing) throw new Error('An account with this email already exists');
+
+    let doctorId = null;
     if (role === 'patient') {
-      if (!doctorUserId || doctorUserId.trim() === '') {
-        throw new Error('Doctor User ID is required for patient registration');
-      }
-      doctorRow = await getUserByLoginId(doctorUserId.trim().toUpperCase());
-      if (!doctorRow || doctorRow.role !== 'doctor') {
-        throw new Error('Invalid Doctor User ID. Please verify with your doctor.');
-      }
+      if (!doctorCode || doctorCode.trim() === '') throw new Error('Doctor Code is required for patient registration');
+      const allUsers = await dbGetAll(STORES.USERS);
+      const doctors = allUsers.filter(u => u.role === 'doctor');
+      const matchingDoctor = doctors.find(d => (d.doctorCode || '').toUpperCase() === doctorCode.trim().toUpperCase());
+      if (!matchingDoctor) throw new Error('Invalid Doctor Code. Please check with your doctor.');
+      doctorId = matchingDoctor.id;
     }
 
-    const passwordHash = await hashPassword(password);
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .insert({
-        user_id: loginId,
-        name: name.trim(),
-        role,
-        password_hash: passwordHash,
-        doctor_id: doctorRow ? doctorRow.id : null,
-      })
-      .select('*')
-      .single();
-
-    if (userError) {
-      if (String(userError.message || '').toLowerCase().includes('duplicate')) {
-        throw new Error('User ID already exists. Try another one.');
-      }
-      throw userError;
-    }
-
-    if (role === 'patient') {
-      const { error: patientError } = await supabase
-        .from('patients')
-        .insert({
-          user_id: user.id,
-          doctor_id: doctorRow.id,
-          name: name.trim(),
-          condition: '',
-          has_baseline_data: false,
-        });
-      if (patientError) throw patientError;
-    }
-
-    return { userId: user.id, loginId, role: user.role };
-  }
-
-  async function login(loginId, password) {
-    if (!loginId || !password) throw new Error('User ID and password are required');
-
-    const user = await getUserByLoginId(loginId.trim().toUpperCase());
-    if (!user) throw new Error('No account found with this User ID');
-
-    const passwordHash = await hashPassword(password);
-    if (passwordHash !== user.password_hash) throw new Error('Incorrect password');
-
-    const session = {
-      userId: user.id,
-      loginId: user.user_id,
-      role: user.role,
-      name: user.name,
-      doctorId: user.doctor_id || null,
-      doctorCode: user.user_id,
+    const user = {
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      role,
+      doctorId,
+      createdAt: new Date().toISOString(),
     };
 
+    const userId = await dbAdd(STORES.USERS, user);
+    let code = null;
+    if (role === 'doctor') {
+      code = 'DR' + userId.toString().padStart(4, '0');
+      user.doctorCode = code;
+      user.id = userId;
+      await dbPut(STORES.USERS, user);
+    } else if (role === 'patient') {
+      await dbAdd(STORES.PATIENTS, {
+        userId,
+        doctorId,
+        name: name.trim(),
+        age: null,
+        condition: '',
+        createdAt: new Date().toISOString(),
+        hasBaselineData: false,
+      });
+    }
+
+    const session = {
+      userId,
+      role,
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      doctorId,
+      doctorCode: code,
+    };
     saveSession(session);
     return session;
   }
 
-  function logout() {
-    clearSession();
-    for (const channel of realtimeChannels) {
-      supabase.removeChannel(channel);
+  // ─── Login ────────────────────────────────────────────────────────────────
+  async function login(email, password) {
+    if (!email || !password) throw new Error('Email and password are required');
+
+    try {
+      if (typeof API !== 'undefined') {
+        const res = await API.login(email, password);
+        const session = {
+          userId: res.user.id,
+          role: res.user.role,
+          name: res.user.name,
+          email: res.user.email,
+          doctorId: res.doctor_id || null,
+          doctorCode: res.user.doctor_code || null,
+          patientId: res.patient_id || null,
+        };
+        saveSession(session);
+        return session;
+      }
+    } catch (apiErr) {
+      if (apiErr.message && !apiErr.message.includes('Failed to fetch') && !apiErr.message.includes('NetworkError')) {
+        throw apiErr;
+      }
+      console.warn('[Auth] Backend login failed, falling back to local storage:', apiErr);
     }
-    realtimeChannels.clear();
+
+    // Local IndexedDB Fallback
+    const user = await dbGetOneByIndex(STORES.USERS, 'email', email.toLowerCase().trim());
+    if (!user) throw new Error('No account found with this email');
+
+    let patientId = null;
+    if (user.role === 'patient') {
+      const p = await dbGetOneByIndex(STORES.PATIENTS, 'userId', user.id);
+      if (p) patientId = p.id;
+    }
+
+    const session = {
+      userId: user.id,
+      role: user.role,
+      name: user.name,
+      email: user.email,
+      doctorId: user.doctorId || null,
+      doctorCode: user.doctorCode || null,
+      patientId,
+    };
+    saveSession(session);
+    return session;
   }
 
+  // ─── Logout ───────────────────────────────────────────────────────────────
+  function logout() {
+    clearSession();
+  }
+
+  // ─── Patient Profile CRUD ─────────────────────────────────────────────────
   async function getPatientByUserId(userId) {
-    const { data, error } = await supabase
-      .from('patients')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
-    if (error) throw error;
-    return normalizePatient(data);
+    try {
+      if (typeof API !== 'undefined') {
+        const p = await API.getPatientByUserId(userId);
+        if (p) {
+          // Normalize field names
+          const norm = {
+            id: p.id,
+            userId: p.user_id,
+            doctorId: p.doctor_id,
+            name: p.name,
+            age: p.age,
+            condition: p.condition,
+            hasBaselineData: p.has_baseline_data,
+            doctorName: p.doctor_name,
+            doctorCode: p.doctor_code,
+          };
+          dbPut(STORES.PATIENTS, norm).catch(() => {});
+          return norm;
+        }
+      }
+    } catch (e) {
+      console.warn('[Auth] getPatientByUserId API error, falling back:', e.message);
+    }
+    return dbGetOneByIndex(STORES.PATIENTS, 'userId', userId);
+  }
+
+  async function getPatientById(patientId) {
+    try {
+      if (typeof API !== 'undefined' && patientId) {
+        const p = await API.getPatient(patientId);
+        if (p) {
+          const norm = {
+            id: p.id,
+            userId: p.user_id,
+            doctorId: p.doctor_id,
+            name: p.name,
+            age: p.age,
+            condition: p.condition,
+            hasBaselineData: p.has_baseline_data,
+            doctorName: p.doctor_name,
+            doctorCode: p.doctor_code,
+          };
+          dbPut(STORES.PATIENTS, norm).catch(() => {});
+          return norm;
+        }
+      }
+    } catch (e) {
+      console.warn('[Auth] getPatientById API error, falling back:', e.message);
+    }
+    return dbGet(STORES.PATIENTS, patientId);
   }
 
   async function getPatientsByDoctorId(doctorId) {
-    const { data, error } = await supabase
-      .from('patients')
-      .select('*')
-      .eq('doctor_id', doctorId)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return (data || []).map(normalizePatient);
+    try {
+      if (typeof API !== 'undefined') {
+        const list = await API.getPatients();
+        if (Array.isArray(list)) {
+          const mapped = list.map(p => ({
+            id: p.id,
+            userId: p.user_id,
+            doctorId: p.doctor_id,
+            name: p.name,
+            age: p.age,
+            condition: p.condition,
+            hasBaselineData: p.has_baseline_data,
+            doctorName: p.doctor_name,
+            doctorCode: p.doctor_code,
+          }));
+          mapped.forEach(p => dbPut(STORES.PATIENTS, p).catch(() => {}));
+          return mapped;
+        }
+      }
+    } catch (e) {
+      console.warn('[Auth] getPatientsByDoctorId API error, falling back:', e.message);
+    }
+    return dbGetByIndex(STORES.PATIENTS, 'doctorId', doctorId);
   }
 
   async function updatePatientProfile(patientObj) {
-    const payload = {
-      id: patientObj.id,
-      name: patientObj.name,
-      age: patientObj.age,
-      condition: patientObj.condition,
-      has_baseline_data: !!patientObj.hasBaselineData,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { data, error } = await supabase
-      .from('patients')
-      .upsert(payload)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return normalizePatient(data);
+    try {
+      if (typeof API !== 'undefined' && patientObj.id) {
+        await API.updatePatient(patientObj.id, {
+          name: patientObj.name,
+          age: patientObj.age,
+          condition: patientObj.condition,
+          has_baseline_data: patientObj.hasBaselineData,
+        });
+      }
+    } catch (e) {
+      console.warn('[Auth] updatePatientProfile API error:', e.message);
+    }
+    return dbPut(STORES.PATIENTS, patientObj);
   }
 
+  // ─── Threshold CRUD ───────────────────────────────────────────────────────
   async function saveThreshold(thresholdObj) {
-    const now = new Date().toISOString();
-    const payload = {
-      patient_id: thresholdObj.patientId,
-      doctor_id: thresholdObj.doctorId,
-      min_angle: thresholdObj.minAngle,
-      max_angle: thresholdObj.maxAngle,
-      target_reps: thresholdObj.targetReps,
-      motion_limit: thresholdObj.motionLimit,
-      temp_limit: thresholdObj.tempLimit,
-      exercise_type: thresholdObj.exerciseType,
-      notes: thresholdObj.notes || '',
-      updated_at: now,
-    };
+    try {
+      if (typeof API !== 'undefined' && thresholdObj.patientId) {
+        const saved = await API.saveThreshold(thresholdObj.patientId, {
+          min_angle: thresholdObj.minAngle,
+          max_angle: thresholdObj.maxAngle,
+          target_reps: thresholdObj.targetReps,
+          motion_limit: thresholdObj.motionLimit,
+          temp_limit: thresholdObj.tempLimit,
+          exercise_type: thresholdObj.exerciseType,
+          notes: thresholdObj.notes || '',
+        });
+        const norm = {
+          id: saved.id,
+          patientId: saved.patient_id,
+          doctorId: saved.doctor_id,
+          minAngle: saved.min_angle,
+          maxAngle: saved.max_angle,
+          targetReps: saved.target_reps,
+          motionLimit: saved.motion_limit,
+          tempLimit: saved.temp_limit,
+          exerciseType: saved.exercise_type,
+          notes: saved.notes,
+          createdAt: saved.created_at,
+          updatedAt: saved.updated_at,
+        };
+        dbPut(STORES.THRESHOLDS, norm).catch(() => {});
+        return norm;
+      }
+    } catch (e) {
+      console.warn('[Auth] saveThreshold API error:', e.message);
+    }
 
-    const { data: existing, error: existingErr } = await supabase
-      .from('thresholds')
-      .select('id')
-      .eq('patient_id', thresholdObj.patientId)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (existingErr) throw existingErr;
-
-    if (existing?.id) payload.id = existing.id;
-    else payload.created_at = now;
-
-    const { data, error } = await supabase
-      .from('thresholds')
-      .upsert(payload)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return normalizeThreshold(data);
+    // Local IndexedDB fallback
+    const existing = await dbGetByIndex(STORES.THRESHOLDS, 'patientId', thresholdObj.patientId);
+    if (existing && existing.length > 0) {
+      const latest = existing[existing.length - 1];
+      const updated = { ...latest, ...thresholdObj, updatedAt: new Date().toISOString() };
+      return dbPut(STORES.THRESHOLDS, updated);
+    } else {
+      const newThreshold = { ...thresholdObj, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      return dbAdd(STORES.THRESHOLDS, newThreshold);
+    }
   }
 
   async function getThresholdForPatient(patientId) {
-    const { data, error } = await supabase
-      .from('thresholds')
-      .select('*')
-      .eq('patient_id', patientId)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    return normalizeThreshold(data);
+    try {
+      if (typeof API !== 'undefined' && patientId) {
+        const t = await API.getActiveThreshold(patientId);
+        if (t) {
+          return {
+            id: t.id,
+            patientId: t.patient_id,
+            doctorId: t.doctor_id,
+            minAngle: t.min_angle,
+            maxAngle: t.max_angle,
+            targetReps: t.target_reps,
+            motionLimit: t.motion_limit,
+            tempLimit: t.temp_limit,
+            exerciseType: t.exercise_type,
+            notes: t.notes,
+            createdAt: t.created_at,
+            updatedAt: t.updated_at,
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('[Auth] getThresholdForPatient API error, falling back:', e.message);
+    }
+
+    const all = await dbGetByIndex(STORES.THRESHOLDS, 'patientId', patientId);
+    if (!all || all.length === 0) return null;
+    return all.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))[0];
   }
 
   async function getThresholdHistoryForPatient(patientId) {
-    const { data, error } = await supabase
-      .from('thresholds')
-      .select('*')
-      .eq('patient_id', patientId)
-      .order('updated_at', { ascending: false });
-    if (error) throw error;
-    return (data || []).map(normalizeThreshold);
+    try {
+      if (typeof API !== 'undefined' && patientId) {
+        const list = await API.getThresholdHistory(patientId);
+        if (Array.isArray(list)) {
+          return list.map(t => ({
+            id: t.id,
+            patientId: t.patient_id,
+            doctorId: t.doctor_id,
+            minAngle: t.min_angle,
+            maxAngle: t.max_angle,
+            targetReps: t.target_reps,
+            motionLimit: t.motion_limit,
+            tempLimit: t.temp_limit,
+            exerciseType: t.exercise_type,
+            notes: t.notes,
+            createdAt: t.created_at,
+            updatedAt: t.updated_at,
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn('[Auth] getThresholdHistoryForPatient API error:', e.message);
+    }
+    const all = await dbGetByIndex(STORES.THRESHOLDS, 'patientId', patientId);
+    return all.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
   }
 
+  // ─── Exercise History CRUD ────────────────────────────────────────────────
   async function saveExerciseRecord(record) {
-    const { data, error } = await supabase
-      .from('exercise_history')
-      .insert({
-        patient_id: record.patientId,
-        doctor_id: record.doctorId,
-        date: record.date || new Date().toISOString(),
-        reps_completed: record.repsCompleted,
-        target_reps: record.targetReps,
-        max_angle_reached: record.maxAngleReached,
-        min_angle_reached: record.minAngleReached,
-        avg_temp: record.avgTemp,
-        duration_s: record.duration_s,
-        status: record.status,
-        exercise_type: record.exerciseType || 'Exercise',
-      })
-      .select('*')
-      .single();
-    if (error) throw error;
-    return normalizeExerciseRecord(data);
+    try {
+      if (typeof API !== 'undefined') {
+        const saved = await API.saveExerciseRecord({
+          patient_id: record.patientId,
+          date: record.date || new Date().toISOString(),
+          reps_completed: record.repsCompleted,
+          target_reps: record.targetReps,
+          max_angle_reached: record.maxAngleReached,
+          min_angle_reached: record.minAngleReached,
+          avg_temp: record.avgTemp,
+          duration_s: record.duration_s,
+          status: record.status,
+          exercise_type: record.exerciseType,
+          notes: record.notes || '',
+        });
+        const norm = {
+          id: saved.id,
+          patientId: saved.patient_id,
+          doctorId: saved.doctor_id,
+          date: saved.date,
+          repsCompleted: saved.reps_completed,
+          targetReps: saved.target_reps,
+          maxAngleReached: saved.max_angle_reached,
+          minAngleReached: saved.min_angle_reached,
+          avgTemp: saved.avg_temp,
+          duration_s: saved.duration_s,
+          status: saved.status,
+          exerciseType: saved.exercise_type,
+          notes: saved.notes,
+        };
+        dbAdd(STORES.EX_HISTORY, norm).catch(() => {});
+        return norm;
+      }
+    } catch (e) {
+      console.warn('[Auth] saveExerciseRecord API error:', e.message);
+    }
+    const obj = { ...record, date: record.date || new Date().toISOString() };
+    return dbAdd(STORES.EX_HISTORY, obj);
   }
 
   async function getExerciseHistoryForPatient(patientId) {
-    const { data, error } = await supabase
-      .from('exercise_history')
-      .select('*')
-      .eq('patient_id', patientId)
-      .order('date', { ascending: false });
-    if (error) throw error;
-    return (data || []).map(normalizeExerciseRecord);
+    try {
+      if (typeof API !== 'undefined' && patientId) {
+        const list = await API.getExerciseHistory(patientId);
+        if (Array.isArray(list)) {
+          return list.map(h => ({
+            id: h.id,
+            patientId: h.patient_id,
+            doctorId: h.doctor_id,
+            date: h.date,
+            repsCompleted: h.reps_completed,
+            targetReps: h.target_reps,
+            maxAngleReached: h.max_angle_reached,
+            minAngleReached: h.min_angle_reached,
+            avgTemp: h.avg_temp,
+            duration_s: h.duration_s,
+            status: h.status,
+            exerciseType: h.exercise_type,
+            notes: h.notes,
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn('[Auth] getExerciseHistoryForPatient API error:', e.message);
+    }
+    const all = await dbGetByIndex(STORES.EX_HISTORY, 'patientId', patientId);
+    return all.sort((a, b) => new Date(b.date) - new Date(a.date));
   }
 
+  // ─── Doctor Info ──────────────────────────────────────────────────────────
   async function getDoctorById(doctorId) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', doctorId)
-      .maybeSingle();
-    if (error) throw error;
-    if (!data) return null;
-    return {
-      id: data.id,
-      userId: data.user_id,
-      name: data.name,
-      role: data.role,
-      doctorCode: data.user_id,
-      createdAt: data.created_at,
-    };
+    const all = await getAllDoctors();
+    return all.find(d => d.id === doctorId) || dbGet(STORES.USERS, doctorId);
   }
 
   async function getAllDoctors() {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('role', 'doctor')
-      .order('created_at', { ascending: true });
-    if (error) throw error;
-    return (data || []).map(d => ({
-      id: d.id,
-      userId: d.user_id,
-      name: d.name,
-      role: d.role,
-      doctorCode: d.user_id,
-      createdAt: d.created_at,
-    }));
+    try {
+      if (typeof API !== 'undefined') {
+        const docs = await API.getDoctors();
+        if (Array.isArray(docs)) {
+          return docs.map(d => ({
+            id: d.id,
+            name: d.name,
+            email: d.email,
+            role: d.role,
+            doctorCode: d.doctor_code,
+          }));
+        }
+      }
+    } catch (e) {}
+    const all = await dbGetAll(STORES.USERS);
+    return all.filter(u => u.role === 'doctor');
   }
 
-  async function saveExercisePrescription(prescriptionObj) {
-    const now = new Date().toISOString();
-    const payload = {
-      patient_id: prescriptionObj.patientId,
-      doctor_id: prescriptionObj.doctorId,
-      youtube_url: prescriptionObj.youtubeUrl,
-      title: prescriptionObj.title || '',
-      notes: prescriptionObj.notes || '',
-      is_active: prescriptionObj.isActive !== false,
-      updated_at: now,
-    };
-
-    if (prescriptionObj.id) {
-      payload.id = prescriptionObj.id;
-    } else {
-      payload.created_at = now;
-    }
-
-    const { data, error } = await supabase
-      .from('exercise_prescriptions')
-      .upsert(payload)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return normalizePrescription(data);
-  }
-
-  async function getExercisePrescriptionsForPatient(patientId, includeInactive = false) {
-    let query = supabase
-      .from('exercise_prescriptions')
-      .select('*')
-      .eq('patient_id', patientId)
-      .order('updated_at', { ascending: false });
-
-    if (!includeInactive) query = query.eq('is_active', true);
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data || []).map(normalizePrescription);
-  }
-
-  async function archiveExercisePrescription(prescriptionId) {
-    const { data, error } = await supabase
-      .from('exercise_prescriptions')
-      .update({ is_active: false, updated_at: new Date().toISOString() })
-      .eq('id', prescriptionId)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return normalizePrescription(data);
-  }
-
-  function subscribeToPatientUpdates(patientId, callback) {
-    const channel = supabase
-      .channel(`patient:${patientId}:${Date.now()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'thresholds', filter: `patient_id=eq.${patientId}` }, callback)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'exercise_history', filter: `patient_id=eq.${patientId}` }, callback)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'exercise_prescriptions', filter: `patient_id=eq.${patientId}` }, callback)
-      .subscribe();
-
-    realtimeChannels.add(channel);
-    return () => {
-      realtimeChannels.delete(channel);
-      supabase.removeChannel(channel);
-    };
-  }
-
-  function subscribeToDoctorUpdates(doctorId, callback) {
-    const channel = supabase
-      .channel(`doctor:${doctorId}:${Date.now()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'patients', filter: `doctor_id=eq.${doctorId}` }, callback)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'thresholds', filter: `doctor_id=eq.${doctorId}` }, callback)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'exercise_history', filter: `doctor_id=eq.${doctorId}` }, callback)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'exercise_prescriptions', filter: `doctor_id=eq.${doctorId}` }, callback)
-      .subscribe();
-
-    realtimeChannels.add(channel);
-    return () => {
-      realtimeChannels.delete(channel);
-      supabase.removeChannel(channel);
-    };
-  }
-
-  // Legacy compatibility helpers
-  async function _dbGet(storeName, key) {
-    if (storeName === 'patients') {
-      const { data, error } = await supabase.from('patients').select('*').eq('id', key).maybeSingle();
-      if (error) throw error;
-      return normalizePatient(data);
-    }
-    if (storeName === 'users') {
-      const { data, error } = await supabase.from('users').select('*').eq('id', key).maybeSingle();
-      if (error) throw error;
-      if (!data) return null;
-      return { id: data.id, userId: data.user_id, name: data.name, role: data.role, doctorId: data.doctor_id || null, doctorCode: data.user_id };
-    }
-    return null;
-  }
-
-  async function _dbGetAll(storeName) {
-    if (storeName === 'users') {
-      const { data, error } = await supabase.from('users').select('*');
-      if (error) throw error;
-      return (data || []).map(d => ({ id: d.id, userId: d.user_id, name: d.name, role: d.role, doctorId: d.doctor_id || null, doctorCode: d.user_id }));
-    }
-    return [];
-  }
-
-  async function _dbGetByIndex(storeName, indexName, value) {
-    if (storeName === 'patients' && indexName === 'doctorId') {
-      return getPatientsByDoctorId(value);
-    }
-    return [];
-  }
-
-  async function _dbPut(storeName, obj) {
-    if (storeName === 'patients') return updatePatientProfile(obj);
-    return obj;
-  }
-
+  // ─── Init ─────────────────────────────────────────────────────────────────
   async function init() {
-    const cfg = getConfig();
-    if (!window.supabase || !window.supabase.createClient) {
-      throw new Error('Supabase client library not loaded');
+    await openDB();
+    if (typeof API !== 'undefined') {
+      const online = await API.checkHealth();
+      console.log(`[Auth] API is ${online ? 'ONLINE' : 'OFFLINE'}. IndexedDB ready.`);
+      if (online && API.getToken()) {
+        try {
+          const meData = await API.getMe();
+          if (meData && meData.user) {
+            const updatedSession = {
+              userId: meData.user.id,
+              role: meData.user.role,
+              name: meData.user.name,
+              email: meData.user.email,
+              doctorId: meData.doctor_id || null,
+              doctorCode: meData.doctor_code || null,
+              patientId: meData.patient_id || null,
+            };
+            saveSession(updatedSession);
+          }
+        } catch (e) {
+          console.log('[Auth] Token validation error on init:', e.message);
+        }
+      }
     }
-    supabase = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-    console.log('[Auth] Supabase backend ready');
   }
 
+  // ─── Public API ───────────────────────────────────────────────────────────
   return {
     init,
     register,
     login,
     logout,
     getSession,
-    hashPassword,
-    generateDoctorCode: (id) => id,
+    // patient
+    getPatientById,
     getPatientByUserId,
     getPatientsByDoctorId,
     updatePatientProfile,
+    // thresholds
     saveThreshold,
     getThresholdForPatient,
     getThresholdHistoryForPatient,
+    // exercise history
     saveExerciseRecord,
     getExerciseHistoryForPatient,
+    // doctor
     getDoctorById,
     getAllDoctors,
-    saveExercisePrescription,
-    getExercisePrescriptionsForPatient,
-    archiveExercisePrescription,
-    subscribeToPatientUpdates,
-    subscribeToDoctorUpdates,
-    _dbGet,
-    _dbGetAll,
-    _dbGetByIndex,
-    _dbPut,
+    // db helpers
+    _dbGet: dbGet,
+    _dbGetAll: dbGetAll,
+    _dbGetByIndex: dbGetByIndex,
+    _dbPut: dbPut,
   };
 })();

@@ -20,6 +20,17 @@
 
 ```
 MYOSA 6.0 PhysioPulse/
+├── backend/                        ← FastAPI + SQLite Backend for Patient History
+│   ├── app/
+│   │   ├── main.py                 ← FastAPI entry point & WebApp static mount
+│   │   ├── models.py               ← SQLAlchemy models (Users, Patients, Thresholds, History)
+│   │   ├── schemas.py              ← Pydantic schemas
+│   │   ├── auth.py                 ← JWT & Password authentication
+│   │   ├── seed.py                 ← Seed script for sample data
+│   │   └── routers/                ← REST API endpoints (auth, patients, thresholds, sessions)
+│   ├── tests/                      ← Automated pytest suite
+│   ├── requirements.txt            ← Python dependencies
+│   └── run.py                      ← One-command launcher (`python backend/run.py`)
 ├── firmware/
 │   ├── physiopulse_firmware.ino    ← Main ESP32 sketch (open this in Arduino IDE)
 │   ├── mpu6050.h                   ← Custom MPU-6050 I2C driver
@@ -29,10 +40,13 @@ MYOSA 6.0 PhysioPulse/
     ├── sw.js
     ├── css/style.css
     └── js/
-        ├── app.js
-        ├── connection.js
-        ├── charts.js
-        └── session.js
+        ├── api.js                  ← Backend REST API Client
+        ├── auth.js                 ← Authentication & Patient Store
+        ├── doctor-portal.js        ← Doctor Dashboard & Patient Management
+        ├── patient-portal.js       ← Patient Dashboard & Exercise Rep Tracking
+        ├── session.js              ← Session Recording & CSV Download
+        ├── connection.js           ← BLE & WebSocket sensor connectivity
+        └── charts.js               ← Canvas graphs for real-time ROM
 ```
 
 ---
@@ -76,19 +90,34 @@ MYOSA 6.0 PhysioPulse/
    PhysioPulse is READY!
    ```
 
-### 4. Run the Web App & Connect via Bluetooth (BLE)
+### 3. Start the Backend Server (with Patient History Database)
 
-Since you are running the web app locally, you will connect to the ESP32 using Web Bluetooth instead of WiFi.
+The backend provides persistent patient histories, exercise tracking, and doctor prescriptions.
 
-1. Open your terminal and navigate to the `webapp` folder.
-2. Start a local server: `python -m http.server 8000` (or use `npx serve`).
-3. Open your Chrome or Edge browser (must support Web Bluetooth) and go to **http://localhost:8000**
-4. Log in or Register in the app.
-5. Once logged in, go to the **Settings** page from the sidebar menu.
-6. Under Connection, ensure **BLE** is selected.
-7. Click **Connect to ESP32**. A browser popup will appear.
-8. Select **PhysioPulse-XXXX** from the list and click Pair.
-9. You are now connected and receiving real-time sensor data over Bluetooth!
+1. Install Python dependencies:
+   ```bash
+   pip install -r backend/requirements.txt
+   ```
+2. Start the backend:
+   ```bash
+   python backend/run.py
+   ```
+   - **Web Application:** http://localhost:8000
+   - **Interactive API Docs (Swagger):** http://localhost:8000/docs
+   - **Preloaded Demo Accounts:**
+     - **Doctor:** `doctor@physiopulse.com` / `doctor123` (Doctor Code: `DR0001`)
+     - **Patient 1:** `john@example.com` / `patient123` (Preloaded with 3 exercise sessions)
+     - **Patient 2:** `jane@example.com` / `patient123`
+
+### 4. Connect to ESP32 via Bluetooth (BLE)
+
+1. Open Chrome or Edge and go to **http://localhost:8000**
+2. Log in as a Patient or Doctor.
+3. Once logged in, go to the **Settings** page from the sidebar menu.
+4. Under Connection, ensure **BLE** is selected.
+5. Click **Connect to ESP32**. A browser popup will appear.
+6. Select **PhysioPulse-XXXX** from the list and click Pair.
+7. You are now connected and receiving real-time sensor data over Bluetooth!
 
 ---
 
@@ -105,7 +134,29 @@ Since you are running the web app locally, you will connect to the ESP32 using W
 
 ---
 
-## API Endpoints (when connected to ESP32)
+## Backend REST API Endpoints (`http://localhost:8000`)
+
+Interactive OpenAPI / Swagger UI is available at `http://localhost:8000/docs`.
+
+| Endpoint | Method | Auth | Description |
+|---|---|---|---|
+| `/api/auth/register` | POST | None | Register Doctor (generates Doctor Code) or Patient (linked by code) |
+| `/api/auth/login` | POST | None | Log in and obtain JWT access token |
+| `/api/auth/me` | GET | Bearer | Get current user details and linked profiles |
+| `/api/patients` | GET | Bearer | List patients assigned to doctor |
+| `/api/patients/{id}` | GET/PUT | Bearer | View / update patient baseline info & clinical condition |
+| `/api/patients/{id}/threshold` | GET/POST | Bearer | Get or prescribe active range-of-motion & rep limits |
+| `/api/patients/{id}/thresholds` | GET | Bearer | Audit trail of all threshold adjustments over time |
+| `/api/exercise-history` | GET/POST | Bearer | Save and retrieve patient exercise completion & compliance |
+| `/api/patients/{id}/exercise-history` | GET | Bearer | Get chronological exercise history for specific patient |
+| `/api/patients/{id}/analytics` | GET | Bearer | ROM progression, compliance rate %, and session aggregates |
+| `/api/sessions` | GET/POST | Optional | Store & list raw high-frequency sensor recordings (20 Hz) |
+| `/api/sessions/{id}` | GET/DELETE | Optional | View full recorded session points / delete session |
+| `/api/sessions/{id}/csv` | GET | None | Direct CSV export download of recorded sensor stream |
+
+---
+
+## ESP32 Device API Endpoints (Direct WiFi Mode)
 
 | Endpoint | Method | Description |
 |---|---|---|

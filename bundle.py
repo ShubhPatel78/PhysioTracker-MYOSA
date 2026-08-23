@@ -1,7 +1,11 @@
-import os, base64
+import os
+from pathlib import Path
 
-webapp_dir = r"c:\Users\DHRUVAM\OneDrive\Desktop\MYOSA 6.0 PhysioPulse\webapp"
-out_file = r"c:\Users\DHRUVAM\OneDrive\Desktop\MYOSA 6.0 PhysioPulse\firmware\physiopulse_firmware\webapp_data.h"
+BASE_DIR = Path(__file__).resolve().parent
+webapp_dir = BASE_DIR / "webapp"
+out_dir = BASE_DIR / "firmware"
+out_dir.mkdir(parents=True, exist_ok=True)
+out_file = out_dir / "webapp_data.h"
 
 with open(os.path.join(webapp_dir, "index.html"), "r", encoding="utf-8") as f:
     html = f.read()
@@ -12,7 +16,7 @@ with open(os.path.join(webapp_dir, "css", "style.css"), "r", encoding="utf-8") a
 html = html.replace('<link rel="stylesheet" href="css/style.css" />', f"<style>{css}</style>")
 
 # Inline JS
-js_files = ["connection.js", "charts.js", "session.js", "auth.js", "doctor-portal.js", "patient-portal.js", "app.js"]
+js_files = ["api.js", "connection.js", "charts.js", "session.js", "auth.js", "doctor-portal.js", "patient-portal.js", "app.js"]
 for js_file in js_files:
     with open(os.path.join(webapp_dir, "js", js_file), "r", encoding="utf-8") as f:
         js = f.read()
