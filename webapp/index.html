@@ -72,8 +72,8 @@
     <div id="loginError" class="auth-error hidden"></div>
 
     <div class="form-group">
-      <label class="form-label" for="loginEmail">Email Address</label>
-      <input type="email" class="form-input" id="loginEmail" placeholder="doctor@hospital.com" autocomplete="email" />
+      <label class="form-label" for="loginUserId">User ID</label>
+      <input type="text" class="form-input" id="loginUserId" placeholder="e.g. DR123456" autocomplete="username" style="text-transform:uppercase" />
     </div>
     <div class="form-group">
       <label class="form-label" for="loginPassword">Password</label>
@@ -126,8 +126,8 @@
       <input type="text" class="form-input" id="regName" placeholder="Dr. John Smith / Jane Doe" autocomplete="name" />
     </div>
     <div class="form-group">
-      <label class="form-label" for="regEmail">Email Address</label>
-      <input type="email" class="form-input" id="regEmail" placeholder="your@email.com" autocomplete="email" />
+      <label class="form-label" for="regUserId">User ID <span style="color:rgba(255,255,255,0.4);font-size:0.75rem">(optional, auto-generated if empty)</span></label>
+      <input type="text" class="form-input" id="regUserId" placeholder="e.g. DR123456 / PT123456" autocomplete="username" style="text-transform:uppercase" />
     </div>
     <div class="form-group">
       <label class="form-label" for="regPassword">Password <span style="color:rgba(255,255,255,0.4);font-size:0.75rem">(min 6 chars)</span></label>
@@ -136,8 +136,8 @@
 
     <!-- Patient-only: Doctor Code -->
     <div class="form-group" id="doctorCodeGroup" style="display:none">
-      <label class="form-label" for="regDoctorCode">Doctor Code <span style="color:rgba(255,255,255,0.4);font-size:0.75rem">(from your doctor)</span></label>
-      <input type="text" class="form-input" id="regDoctorCode" placeholder="e.g. DR0001" style="text-transform:uppercase" />
+      <label class="form-label" for="regDoctorUserId">Doctor User ID <span style="color:rgba(255,255,255,0.4);font-size:0.75rem">(from your doctor)</span></label>
+      <input type="text" class="form-input" id="regDoctorUserId" placeholder="e.g. DR123456" style="text-transform:uppercase" />
     </div>
 
     <button class="btn-primary auth-submit" id="registerBtn">
@@ -280,7 +280,7 @@
       <div class="page-header">
         <h1>Doctor Dashboard</h1>
         <div class="page-meta">
-          <span class="doctor-code-badge">Your Code: <strong id="doctorCode">—</strong></span>
+          <span class="doctor-code-badge">Your User ID: <strong id="doctorCode">—</strong></span>
         </div>
       </div>
 
@@ -289,7 +289,7 @@
           <div class="doctor-avatar">🩺</div>
           <div>
             <div class="doctor-welcome-name">Dr. <span id="doctorName">—</span></div>
-            <div class="doctor-welcome-sub">Share your Doctor Code with patients to link them to your account</div>
+            <div class="doctor-welcome-sub">Share your User ID with patients to link them to your account</div>
           </div>
         </div>
         <div class="doctor-stats-row">
@@ -318,7 +318,7 @@
       <div class="page-header">
         <h1>My Patients</h1>
         <div class="page-meta">
-          <span class="doctor-code-badge">Code: <strong id="doctorCodePatients">—</strong></span>
+          <span class="doctor-code-badge">User ID: <strong id="doctorCodePatients">—</strong></span>
         </div>
       </div>
       <div class="patient-cards-grid" id="doctorPatientCardsFull"></div>
@@ -427,6 +427,27 @@
             <p class="settings-desc">All previous threshold settings for this patient.</p>
             <div id="dpThresholdHistory"><div class="empty-mini">No changes yet</div></div>
           </div>
+
+          <div class="settings-card" style="margin-top:1.5rem">
+            <h2 class="settings-title">Exercise Prescriptions (YouTube)</h2>
+            <form id="prescriptionForm">
+              <div class="form-group">
+                <label class="form-label" for="dpVideoTitle">Video Title</label>
+                <input type="text" class="form-input" id="dpVideoTitle" placeholder="e.g. Knee Mobility Routine" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="dpVideoUrl">YouTube URL</label>
+                <input type="url" class="form-input" id="dpVideoUrl" placeholder="https://www.youtube.com/watch?v=..." />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="dpVideoNotes">Notes</label>
+                <textarea class="form-textarea" id="dpVideoNotes" rows="2" placeholder="Usage notes for patient"></textarea>
+              </div>
+              <button type="button" class="btn-primary" id="prescriptionSaveBtn" style="width:100%">Add / Update Prescription</button>
+            </form>
+            <hr class="divider" />
+            <div id="dpPrescriptionList"><div class="empty-mini">No exercise videos assigned yet</div></div>
+          </div>
         </div>
       </div>
     </section>
@@ -503,6 +524,11 @@
             <span class="tdc-label">Temp Alert</span>
             <span class="tdc-val" id="ptTempLimit">—</span>
           </div>
+        </div>
+
+        <div class="settings-card" style="margin-top:1rem">
+          <h2 class="settings-title">Doctor Assigned Exercise Videos</h2>
+          <div id="ptPrescriptionList"><div class="empty-mini">No exercise videos assigned yet</div></div>
         </div>
       </div>
 
@@ -821,6 +847,8 @@
 <script src="js/connection.js"></script>
 <script src="js/charts.js"></script>
 <script src="js/session.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/backend-config.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/doctor-portal.js"></script>
 <script src="js/patient-portal.js"></script>

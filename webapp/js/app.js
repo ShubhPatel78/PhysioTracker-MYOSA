@@ -92,7 +92,7 @@ const App = (() => {
     const codeEl = document.getElementById('doctorCodePatients');
     if (codeEl) codeEl.textContent = userSession.doctorCode || '—';
     if (el && patients.length === 0) {
-      el.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h2>No patients yet</h2><p>Your Doctor Code is <strong>${userSession.doctorCode || '—'}</strong>. Share it with patients so they can register and link to you.</p></div>`;
+      el.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h2>No patients yet</h2><p>Your User ID is <strong>${userSession.doctorCode || '—'}</strong>. Share it with patients so they can register and link to you.</p></div>`;
     } else if (el) {
       // Delegate rendering to DoctorPortal helper by inserting placeholder and calling render
       const cards = await Promise.all(patients.map(async (p) => {
@@ -103,7 +103,7 @@ const App = (() => {
           ? Math.round(history.filter(h => h.status === 'completed').length / history.length * 100)
           : null;
         return `
-          <div class="patient-card" onclick="DoctorPortal.openPatientDetail(${p.id})">
+          <div class="patient-card" onclick="DoctorPortal.openPatientDetail('${p.id}')">
             <div class="pc-header">
               <div class="pc-avatar">${(p.name || 'P').charAt(0).toUpperCase()}</div>
               <div class="pc-info"><div class="pc-name">${p.name}</div><div class="pc-meta">${p.condition || 'No condition set'} · Age: ${p.age || '—'}</div></div>
@@ -404,7 +404,13 @@ const App = (() => {
 
     // Register
     document.getElementById('registerBtn')?.addEventListener('click', doRegister);
-    document.getElementById('regDoctorCode')?.addEventListener('input', (e) => {
+    document.getElementById('regDoctorUserId')?.addEventListener('input', (e) => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+    document.getElementById('regUserId')?.addEventListener('input', (e) => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+    document.getElementById('loginUserId')?.addEventListener('input', (e) => {
       e.target.value = e.target.value.toUpperCase();
     });
 
@@ -413,7 +419,7 @@ const App = (() => {
   }
 
   async function doLogin() {
-    const email    = document.getElementById('loginEmail')?.value.trim();
+    const loginId  = document.getElementById('loginUserId')?.value.trim().toUpperCase();
     const password = document.getElementById('loginPassword')?.value;
     const errorEl  = document.getElementById('loginError');
     const btnText  = document.getElementById('loginBtnText');
@@ -424,7 +430,7 @@ const App = (() => {
     if (errorEl) errorEl.classList.add('hidden');
 
     try {
-      const session = await Auth.login(email, password);
+      const session = await Auth.login(loginId, password);
       showApp(session);
     } catch (e) {
       if (errorEl) { errorEl.textContent = e.message; errorEl.classList.remove('hidden'); }
@@ -435,10 +441,10 @@ const App = (() => {
   }
 
   async function doRegister() {
-    const name       = document.getElementById('regName')?.value.trim();
-    const email      = document.getElementById('regEmail')?.value.trim();
-    const password   = document.getElementById('regPassword')?.value;
-    const doctorCode = document.getElementById('regDoctorCode')?.value.trim();
+    const name         = document.getElementById('regName')?.value.trim();
+    const preferredId  = document.getElementById('regUserId')?.value.trim().toUpperCase();
+    const password     = document.getElementById('regPassword')?.value;
+    const doctorUserId = document.getElementById('regDoctorUserId')?.value.trim().toUpperCase();
     const activeRole = document.querySelector('.role-btn.active')?.dataset.role || 'doctor';
     const errorEl    = document.getElementById('registerError');
     const btnText    = document.getElementById('registerBtnText');
@@ -449,9 +455,9 @@ const App = (() => {
     if (errorEl) errorEl.classList.add('hidden');
 
     try {
-      await Auth.register(activeRole, name, email, password, doctorCode);
-      showToast('Account created! Signing you in…', 'success');
-      const session = await Auth.login(email, password);
+      const registration = await Auth.register(activeRole, name, preferredId, password, doctorUserId);
+      showToast(`Account created. Your User ID: ${registration.loginId}`, 'success');
+      const session = await Auth.login(registration.loginId, password);
       showApp(session);
     } catch (e) {
       if (errorEl) { errorEl.textContent = e.message; errorEl.classList.remove('hidden'); }
@@ -553,14 +559,22 @@ const App = (() => {
 
   // ─── Init ─────────────────────────────────────────────────────────────────
   async function init() {
-    // Init auth DB first
-    await Auth.init();
-    await Session.init();
-    Charts.init();
-    bindAuthEvents();
-    bindAppEvents();
-    setupConnectionHandlers();
-    startRateCounter();
+    try {
+      await Auth.init();
+      await Session.init();
+      Charts.init();
+      bindAuthEvents();
+      bindAppEvents();
+      setupConnectionHandlers();
+      startRateCounter();
+    } catch (e) {
+      console.error('[App] Init failed:', e);
+      const splash = document.getElementById('splash-screen');
+      splash?.classList.add('fade-out');
+      showAuthScreen();
+      showToast(e.message || 'Initialization failed', 'error');
+      return;
+    }
 
     runSplash(async () => {
       // Check for existing valid session

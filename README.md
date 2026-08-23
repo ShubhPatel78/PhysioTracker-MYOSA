@@ -153,4 +153,51 @@ Since you are running the web app locally, you will connect to the ESP32 using W
 
 ---
 
+## Backend Setup (Required for Multi-User Sync)
+
+This app now uses a Supabase backend for:
+- User authentication with **User ID + password** (no email login)
+- Doctor-patient links
+- Threshold history
+- Exercise history
+- Doctor-assigned YouTube exercise prescriptions
+- Real-time sync between doctor and patient portals
+
+### 1) Create Supabase project
+- Create a new Supabase project.
+- In SQL Editor, run:
+  - `webapp/backend/supabase-schema.sql`
+
+### 2) Configure frontend
+- Open `/webapp/js/backend-config.js`
+- Set:
+  - `SUPABASE_URL`
+  - `SUPABASE_ANON_KEY`
+
+### 3) Registration/Login behavior
+- Users register with name + password (+ optional preferred User ID).
+- If User ID is not provided, it is auto-generated (`DRxxxxxx` for doctors, `PTxxxxxx` for patients).
+- Patients must provide their doctor’s User ID during registration.
+
+---
+
+## Hosting as Website + Mobile
+
+- **Website:** deploy `/webapp` to GitHub Pages, Netlify, or Vercel.
+- **Mobile:** this is a PWA (installable on mobile). You can additionally wrap it with Capacitor for Play Store/App Store release.
+- Both web and mobile must use the same Supabase backend for synchronized data.
+
+---
+
+## GitHub Deployment Flow
+
+1. Test locally (`python -m http.server 8000` from `/webapp`)
+2. Push to GitHub
+3. Set backend values securely in deployment environment
+4. Run CI workflow
+5. Publish website build
+6. Optionally package and release mobile wrapper build
+
+---
+
 *Built for MYOSA 6.0 – Stage 2 Working Prototype by Team PhysioPulse*

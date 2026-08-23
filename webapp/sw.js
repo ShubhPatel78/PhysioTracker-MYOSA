@@ -3,15 +3,19 @@
  * Provides offline capability and caches static assets
  */
 
-const CACHE_NAME = 'physiopulse-v1.0.0';
+const CACHE_NAME = 'physiopulse-v2.0.0';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/css/style.css',
   '/js/app.js',
+  '/js/auth.js',
+  '/js/doctor-portal.js',
+  '/js/patient-portal.js',
   '/js/connection.js',
   '/js/charts.js',
   '/js/session.js',
+  '/js/backend-config.js',
   '/manifest.json',
   // Chart.js is served from CDN – we cache it too via runtime caching
 ];
