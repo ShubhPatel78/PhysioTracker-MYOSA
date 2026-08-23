@@ -1,0 +1,60 @@
+name: Webapp CI and Deploy
+
+on:
+  pull_request:
+    paths:
+      - 'webapp/**'
+      - '.github/workflows/webapp-ci.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'webapp/**'
+      - '.github/workflows/webapp-ci.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate JavaScript syntax
+        run: |
+          node --check webapp/js/app.js
+          node --check webapp/js/auth.js
+          node --check webapp/js/connection.js
+          node --check webapp/js/charts.js
+          node --check webapp/js/session.js
+          node --check webapp/js/doctor-portal.js
+          node --check webapp/js/patient-portal.js
+      - name: Verify required webapp files
+        run: |
+          test -f webapp/index.html
+          test -f webapp/manifest.json
+          test -f webapp/sw.js
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: webapp
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,161 +1,26 @@
 /**
- * PhysioPulse – Auth Module
- * Handles registration, login, session tokens, and all user/patient/threshold DB stores.
- * Uses Web Crypto API (SHA-256) for password hashing.
- * All data persisted in IndexedDB; session token in localStorage (8-hour expiry).
+ * PhysioPulse – Auth + Data Module (Supabase backend)
+ * Uses userId + password authentication and realtime data access.
  */
 
 const Auth = (() => {
-  // ─── IndexedDB Config ─────────────────────────────────────────────────────
-  const DB_NAME    = 'PhysioPulseAuth';
-  const DB_VERSION = 2;
-  let db = null;
-
-  // Store names
-  const STORES = {
-    USERS:     'users',
-    PATIENTS:  'patients',
-    THRESHOLDS:'thresholds',
-    EX_HISTORY:'exerciseHistory',
-  };
-
-  // ─── DB Open / Upgrade ────────────────────────────────────────────────────
-  function openDB() {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
-
-      req.onupgradeneeded = (e) => {
-        const d = e.target.result;
-
-        // users store
-        if (!d.objectStoreNames.contains(STORES.USERS)) {
-          const us = d.createObjectStore(STORES.USERS, { keyPath: 'id', autoIncrement: true });
-          us.createIndex('email', 'email', { unique: true });
-          us.createIndex('role', 'role', { unique: false });
-        }
-
-        // patients store (doctor-created patient profiles)
-        if (!d.objectStoreNames.contains(STORES.PATIENTS)) {
-          const ps = d.createObjectStore(STORES.PATIENTS, { keyPath: 'id', autoIncrement: true });
-          ps.createIndex('userId',   'userId',   { unique: true });   // linked user account
-          ps.createIndex('doctorId', 'doctorId', { unique: false });
-        }
-
-        // thresholds store
-        if (!d.objectStoreNames.contains(STORES.THRESHOLDS)) {
-          const ts = d.createObjectStore(STORES.THRESHOLDS, { keyPath: 'id', autoIncrement: true });
-          ts.createIndex('patientId', 'patientId', { unique: false });
-          ts.createIndex('doctorId',  'doctorId',  { unique: false });
-        }
-
-        // exercise history store
-        if (!d.objectStoreNames.contains(STORES.EX_HISTORY)) {
-          const hs = d.createObjectStore(STORES.EX_HISTORY, { keyPath: 'id', autoIncrement: true });
-          hs.createIndex('patientId', 'patientId', { unique: false });
-          hs.createIndex('date',      'date',       { unique: false });
-        }
-      };
-
-      req.onsuccess = (e) => { db = e.target.result; resolve(db); };
-      req.onerror   = (e) => reject(e.target.error);
-    });
-  }
-
-  // ─── Generic DB Helpers ───────────────────────────────────────────────────
-  function dbAdd(storeName, obj) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const req = store.add(obj);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror   = () => reject(req.error);
-    });
-  }
-
-  function dbPut(storeName, obj) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const req = store.put(obj);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror   = () => reject(req.error);
-    });
-  }
-
-  function dbGet(storeName, key) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readonly');
-      const store = tx.objectStore(storeName);
-      const req = store.get(key);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror   = () => reject(req.error);
-    });
-  }
-
-  function dbGetAll(storeName) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readonly');
-      const store = tx.objectStore(storeName);
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result);
-      req.onerror   = () => reject(req.error);
-    });
-  }
-
-  function dbGetByIndex(storeName, indexName, value) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readonly');
-      const store = tx.objectStore(storeName);
-      const index = store.index(indexName);
-      const req = index.getAll(value);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror   = () => reject(req.error);
-    });
-  }
-
-  function dbGetOneByIndex(storeName, indexName, value) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readonly');
-      const store = tx.objectStore(storeName);
-      const index = store.index(indexName);
-      const req = index.get(value);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror   = () => reject(req.error);
-    });
-  }
-
-  function dbDelete(storeName, key) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const req = store.delete(key);
-      req.onsuccess = () => resolve();
-      req.onerror   = () => reject(req.error);
-    });
-  }
-
-  // ─── Password Hashing (SHA-256) ───────────────────────────────────────────
-  async function hashPassword(password) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password + 'physiopulse_salt_v1');
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  // ─── Generate Doctor Code ─────────────────────────────────────────────────
-  function generateDoctorCode(userId) {
-    // Short memorable code: DR + last 4 hex digits of userId hash
-    return 'DR' + userId.toString().padStart(4, '0');
-  }
-
-  // ─── Session Management ───────────────────────────────────────────────────
   const SESSION_KEY = 'pp_session';
-  const SESSION_EXPIRY_MS = 8 * 60 * 60 * 1000; // 8 hours
+  const SESSION_EXPIRY_MS = 8 * 60 * 60 * 1000;
+  const SALT = 'physiopulse_salt_v2';
+
+  let supabase = null;
+  const realtimeChannels = new Set();
+
+  function getConfig() {
+    const cfg = window.PHYSIOPULSE_CONFIG || {};
+    if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
+      throw new Error('Backend is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in webapp/js/backend-config.js');
+    }
+    return cfg;
+  }
 
   function saveSession(session) {
-    const data = { ...session, expiry: Date.now() + SESSION_EXPIRY_MS };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(data));
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, expiry: Date.now() + SESSION_EXPIRY_MS }));
   }
 
   function getSession() {
@@ -164,7 +29,7 @@ const Auth = (() => {
       if (!raw) return null;
       const data = JSON.parse(raw);
       if (Date.now() > data.expiry) {
-        localStorage.removeItem(SESSION_KEY);
+        clearSession();
         return null;
       }
       return data;
@@ -177,169 +42,485 @@ const Auth = (() => {
     localStorage.removeItem(SESSION_KEY);
   }
 
-  // ─── Registration ─────────────────────────────────────────────────────────
-  /**
-   * Register a new user.
-   * @param {string} role - 'doctor' or 'patient'
-   * @param {string} name
-   * @param {string} email
-   * @param {string} password
-   * @param {string} [doctorCode] - required for patients to link to a doctor
-   */
-  async function register(role, name, email, password, doctorCode) {
-    if (!name || !email || !password) throw new Error('All fields are required');
-    if (password.length < 6) throw new Error('Password must be at least 6 characters');
-
-    // Check email not already used
-    const existing = await dbGetOneByIndex(STORES.USERS, 'email', email.toLowerCase());
-    if (existing) throw new Error('An account with this email already exists');
-
-    // For patients, verify doctor code
-    let doctorId = null;
-    if (role === 'patient') {
-      if (!doctorCode || doctorCode.trim() === '') throw new Error('Doctor Code is required for patient registration');
-      // Find doctor by code – search all doctors
-      const allUsers = await dbGetAll(STORES.USERS);
-      const doctors = allUsers.filter(u => u.role === 'doctor');
-      const matchingDoctor = doctors.find(d => generateDoctorCode(d.id) === doctorCode.trim().toUpperCase());
-      if (!matchingDoctor) throw new Error('Invalid Doctor Code. Please check with your doctor.');
-      doctorId = matchingDoctor.id;
-    }
-
-    const passwordHash = await hashPassword(password);
-    const user = {
-      name: name.trim(),
-      email: email.toLowerCase().trim(),
-      passwordHash,
-      role,
-      doctorId,
-      createdAt: new Date().toISOString(),
-    };
-
-    const userId = await dbAdd(STORES.USERS, user);
-
-    // If doctor, generate and store doctor code
-    if (role === 'doctor') {
-      const code = generateDoctorCode(userId);
-      const storedUser = await dbGet(STORES.USERS, userId);
-      storedUser.doctorCode = code;
-      await dbPut(STORES.USERS, storedUser);
-    }
-
-    // If patient, create a patient profile placeholder
-    if (role === 'patient') {
-      await dbAdd(STORES.PATIENTS, {
-        userId,
-        doctorId,
-        name: name.trim(),
-        age: null,
-        condition: '',
-        createdAt: new Date().toISOString(),
-        hasBaselineData: false,
-      });
-    }
-
-    return { userId, role };
+  async function hashPassword(password) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password + SALT);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  // ─── Login ────────────────────────────────────────────────────────────────
-  async function login(email, password) {
-    if (!email || !password) throw new Error('Email and password are required');
+  function normalizePatient(p) {
+    if (!p) return null;
+    return {
+      id: p.id,
+      userId: p.user_id,
+      doctorId: p.doctor_id,
+      name: p.name,
+      age: p.age,
+      condition: p.condition || '',
+      hasBaselineData: !!p.has_baseline_data,
+      createdAt: p.created_at,
+      updatedAt: p.updated_at,
+    };
+  }
 
-    const user = await dbGetOneByIndex(STORES.USERS, 'email', email.toLowerCase().trim());
-    if (!user) throw new Error('No account found with this email');
+  function normalizeThreshold(t) {
+    if (!t) return null;
+    return {
+      id: t.id,
+      patientId: t.patient_id,
+      doctorId: t.doctor_id,
+      minAngle: t.min_angle,
+      maxAngle: t.max_angle,
+      targetReps: t.target_reps,
+      motionLimit: t.motion_limit,
+      tempLimit: t.temp_limit,
+      exerciseType: t.exercise_type,
+      notes: t.notes || '',
+      createdAt: t.created_at,
+      updatedAt: t.updated_at,
+    };
+  }
+
+  function normalizeExerciseRecord(r) {
+    if (!r) return null;
+    return {
+      id: r.id,
+      patientId: r.patient_id,
+      doctorId: r.doctor_id,
+      date: r.date,
+      repsCompleted: r.reps_completed,
+      targetReps: r.target_reps,
+      maxAngleReached: r.max_angle_reached,
+      minAngleReached: r.min_angle_reached,
+      avgTemp: r.avg_temp,
+      duration_s: r.duration_s,
+      status: r.status,
+      exerciseType: r.exercise_type,
+    };
+  }
+
+  function normalizePrescription(p) {
+    if (!p) return null;
+    return {
+      id: p.id,
+      patientId: p.patient_id,
+      doctorId: p.doctor_id,
+      youtubeUrl: p.youtube_url,
+      title: p.title || '',
+      notes: p.notes || '',
+      isActive: p.is_active,
+      createdAt: p.created_at,
+      updatedAt: p.updated_at,
+    };
+  }
+
+  async function getUserByLoginId(loginId) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('user_id', loginId)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
+  async function generateUniqueLoginId(role, preferredId) {
+    if (preferredId) {
+      const clean = preferredId.trim().toUpperCase();
+      if (!/^[A-Z0-9_-]{4,20}$/.test(clean)) {
+        throw new Error('User ID must be 4-20 chars using letters, numbers, underscore or hyphen');
+      }
+      const existing = await getUserByLoginId(clean);
+      if (existing) throw new Error('This User ID is already taken');
+      return clean;
+    }
+
+    const prefix = role === 'doctor' ? 'DR' : 'PT';
+    for (let i = 0; i < 15; i++) {
+      const candidate = `${prefix}${Math.floor(100000 + Math.random() * 900000)}`;
+      const existing = await getUserByLoginId(candidate);
+      if (!existing) return candidate;
+    }
+    throw new Error('Unable to allocate a unique User ID. Please try again.');
+  }
+
+  async function register(role, name, preferredUserId, password, doctorUserId) {
+    if (!name || !password) throw new Error('All required fields must be filled');
+    if (password.length < 6) throw new Error('Password must be at least 6 characters');
+
+    const loginId = await generateUniqueLoginId(role, preferredUserId);
+
+    let doctorRow = null;
+    if (role === 'patient') {
+      if (!doctorUserId || doctorUserId.trim() === '') {
+        throw new Error('Doctor User ID is required for patient registration');
+      }
+      doctorRow = await getUserByLoginId(doctorUserId.trim().toUpperCase());
+      if (!doctorRow || doctorRow.role !== 'doctor') {
+        throw new Error('Invalid Doctor User ID. Please verify with your doctor.');
+      }
+    }
 
     const passwordHash = await hashPassword(password);
-    if (passwordHash !== user.passwordHash) throw new Error('Incorrect password');
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .insert({
+        user_id: loginId,
+        name: name.trim(),
+        role,
+        password_hash: passwordHash,
+        doctor_id: doctorRow ? doctorRow.id : null,
+      })
+      .select('*')
+      .single();
+
+    if (userError) {
+      if (String(userError.message || '').toLowerCase().includes('duplicate')) {
+        throw new Error('User ID already exists. Try another one.');
+      }
+      throw userError;
+    }
+
+    if (role === 'patient') {
+      const { error: patientError } = await supabase
+        .from('patients')
+        .insert({
+          user_id: user.id,
+          doctor_id: doctorRow.id,
+          name: name.trim(),
+          condition: '',
+          has_baseline_data: false,
+        });
+      if (patientError) throw patientError;
+    }
+
+    return { userId: user.id, loginId, role: user.role };
+  }
+
+  async function login(loginId, password) {
+    if (!loginId || !password) throw new Error('User ID and password are required');
+
+    const user = await getUserByLoginId(loginId.trim().toUpperCase());
+    if (!user) throw new Error('No account found with this User ID');
+
+    const passwordHash = await hashPassword(password);
+    if (passwordHash !== user.password_hash) throw new Error('Incorrect password');
 
     const session = {
       userId: user.id,
+      loginId: user.user_id,
       role: user.role,
       name: user.name,
-      email: user.email,
-      doctorId: user.doctorId || null,
-      doctorCode: user.doctorCode || null,
+      doctorId: user.doctor_id || null,
+      doctorCode: user.user_id,
     };
+
     saveSession(session);
     return session;
   }
 
-  // ─── Logout ───────────────────────────────────────────────────────────────
   function logout() {
     clearSession();
+    for (const channel of realtimeChannels) {
+      supabase.removeChannel(channel);
+    }
+    realtimeChannels.clear();
   }
 
-  // ─── Patient Profile CRUD ─────────────────────────────────────────────────
   async function getPatientByUserId(userId) {
-    return dbGetOneByIndex(STORES.PATIENTS, 'userId', userId);
+    const { data, error } = await supabase
+      .from('patients')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) throw error;
+    return normalizePatient(data);
   }
 
   async function getPatientsByDoctorId(doctorId) {
-    return dbGetByIndex(STORES.PATIENTS, 'doctorId', doctorId);
+    const { data, error } = await supabase
+      .from('patients')
+      .select('*')
+      .eq('doctor_id', doctorId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(normalizePatient);
   }
 
   async function updatePatientProfile(patientObj) {
-    return dbPut(STORES.PATIENTS, patientObj);
+    const payload = {
+      id: patientObj.id,
+      name: patientObj.name,
+      age: patientObj.age,
+      condition: patientObj.condition,
+      has_baseline_data: !!patientObj.hasBaselineData,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('patients')
+      .upsert(payload)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return normalizePatient(data);
   }
 
-  // ─── Threshold CRUD ───────────────────────────────────────────────────────
-  /**
-   * Save or update patient thresholds set by a doctor.
-   */
   async function saveThreshold(thresholdObj) {
-    // Check if threshold exists for patient
-    const existing = await dbGetByIndex(STORES.THRESHOLDS, 'patientId', thresholdObj.patientId);
-    if (existing && existing.length > 0) {
-      // Update the latest one
-      const latest = existing[existing.length - 1];
-      const updated = { ...latest, ...thresholdObj, updatedAt: new Date().toISOString() };
-      return dbPut(STORES.THRESHOLDS, updated);
-    } else {
-      const newThreshold = { ...thresholdObj, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-      return dbAdd(STORES.THRESHOLDS, newThreshold);
-    }
+    const now = new Date().toISOString();
+    const payload = {
+      patient_id: thresholdObj.patientId,
+      doctor_id: thresholdObj.doctorId,
+      min_angle: thresholdObj.minAngle,
+      max_angle: thresholdObj.maxAngle,
+      target_reps: thresholdObj.targetReps,
+      motion_limit: thresholdObj.motionLimit,
+      temp_limit: thresholdObj.tempLimit,
+      exercise_type: thresholdObj.exerciseType,
+      notes: thresholdObj.notes || '',
+      updated_at: now,
+    };
+
+    const { data: existing, error: existingErr } = await supabase
+      .from('thresholds')
+      .select('id')
+      .eq('patient_id', thresholdObj.patientId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingErr) throw existingErr;
+
+    if (existing?.id) payload.id = existing.id;
+    else payload.created_at = now;
+
+    const { data, error } = await supabase
+      .from('thresholds')
+      .upsert(payload)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return normalizeThreshold(data);
   }
 
   async function getThresholdForPatient(patientId) {
-    const all = await dbGetByIndex(STORES.THRESHOLDS, 'patientId', patientId);
-    if (!all || all.length === 0) return null;
-    // Return the most recently updated one
-    return all.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0];
+    const { data, error } = await supabase
+      .from('thresholds')
+      .select('*')
+      .eq('patient_id', patientId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return normalizeThreshold(data);
   }
 
   async function getThresholdHistoryForPatient(patientId) {
-    const all = await dbGetByIndex(STORES.THRESHOLDS, 'patientId', patientId);
-    return all.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    const { data, error } = await supabase
+      .from('thresholds')
+      .select('*')
+      .eq('patient_id', patientId)
+      .order('updated_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(normalizeThreshold);
   }
 
-  // ─── Exercise History CRUD ────────────────────────────────────────────────
   async function saveExerciseRecord(record) {
-    const obj = { ...record, date: record.date || new Date().toISOString() };
-    return dbAdd(STORES.EX_HISTORY, obj);
+    const { data, error } = await supabase
+      .from('exercise_history')
+      .insert({
+        patient_id: record.patientId,
+        doctor_id: record.doctorId,
+        date: record.date || new Date().toISOString(),
+        reps_completed: record.repsCompleted,
+        target_reps: record.targetReps,
+        max_angle_reached: record.maxAngleReached,
+        min_angle_reached: record.minAngleReached,
+        avg_temp: record.avgTemp,
+        duration_s: record.duration_s,
+        status: record.status,
+        exercise_type: record.exerciseType || 'Exercise',
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return normalizeExerciseRecord(data);
   }
 
   async function getExerciseHistoryForPatient(patientId) {
-    const all = await dbGetByIndex(STORES.EX_HISTORY, 'patientId', patientId);
-    return all.sort((a, b) => new Date(b.date) - new Date(a.date));
+    const { data, error } = await supabase
+      .from('exercise_history')
+      .select('*')
+      .eq('patient_id', patientId)
+      .order('date', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(normalizeExerciseRecord);
   }
 
-  // ─── Doctor Info ──────────────────────────────────────────────────────────
   async function getDoctorById(doctorId) {
-    return dbGet(STORES.USERS, doctorId);
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', doctorId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      id: data.id,
+      userId: data.user_id,
+      name: data.name,
+      role: data.role,
+      doctorCode: data.user_id,
+      createdAt: data.created_at,
+    };
   }
 
   async function getAllDoctors() {
-    const all = await dbGetAll(STORES.USERS);
-    return all.filter(u => u.role === 'doctor');
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('role', 'doctor')
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data || []).map(d => ({
+      id: d.id,
+      userId: d.user_id,
+      name: d.name,
+      role: d.role,
+      doctorCode: d.user_id,
+      createdAt: d.created_at,
+    }));
   }
 
-  // ─── Init ─────────────────────────────────────────────────────────────────
+  async function saveExercisePrescription(prescriptionObj) {
+    const now = new Date().toISOString();
+    const payload = {
+      patient_id: prescriptionObj.patientId,
+      doctor_id: prescriptionObj.doctorId,
+      youtube_url: prescriptionObj.youtubeUrl,
+      title: prescriptionObj.title || '',
+      notes: prescriptionObj.notes || '',
+      is_active: prescriptionObj.isActive !== false,
+      updated_at: now,
+    };
+
+    if (prescriptionObj.id) {
+      payload.id = prescriptionObj.id;
+    } else {
+      payload.created_at = now;
+    }
+
+    const { data, error } = await supabase
+      .from('exercise_prescriptions')
+      .upsert(payload)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return normalizePrescription(data);
+  }
+
+  async function getExercisePrescriptionsForPatient(patientId, includeInactive = false) {
+    let query = supabase
+      .from('exercise_prescriptions')
+      .select('*')
+      .eq('patient_id', patientId)
+      .order('updated_at', { ascending: false });
+
+    if (!includeInactive) query = query.eq('is_active', true);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data || []).map(normalizePrescription);
+  }
+
+  async function archiveExercisePrescription(prescriptionId) {
+    const { data, error } = await supabase
+      .from('exercise_prescriptions')
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq('id', prescriptionId)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return normalizePrescription(data);
+  }
+
+  function subscribeToPatientUpdates(patientId, callback) {
+    const channel = supabase
+      .channel(`patient:${patientId}:${Date.now()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'thresholds', filter: `patient_id=eq.${patientId}` }, callback)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exercise_history', filter: `patient_id=eq.${patientId}` }, callback)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exercise_prescriptions', filter: `patient_id=eq.${patientId}` }, callback)
+      .subscribe();
+
+    realtimeChannels.add(channel);
+    return () => {
+      realtimeChannels.delete(channel);
+      supabase.removeChannel(channel);
+    };
+  }
+
+  function subscribeToDoctorUpdates(doctorId, callback) {
+    const channel = supabase
+      .channel(`doctor:${doctorId}:${Date.now()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'patients', filter: `doctor_id=eq.${doctorId}` }, callback)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'thresholds', filter: `doctor_id=eq.${doctorId}` }, callback)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exercise_history', filter: `doctor_id=eq.${doctorId}` }, callback)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exercise_prescriptions', filter: `doctor_id=eq.${doctorId}` }, callback)
+      .subscribe();
+
+    realtimeChannels.add(channel);
+    return () => {
+      realtimeChannels.delete(channel);
+      supabase.removeChannel(channel);
+    };
+  }
+
+  // Legacy compatibility helpers
+  async function _dbGet(storeName, key) {
+    if (storeName === 'patients') {
+      const { data, error } = await supabase.from('patients').select('*').eq('id', key).maybeSingle();
+      if (error) throw error;
+      return normalizePatient(data);
+    }
+    if (storeName === 'users') {
+      const { data, error } = await supabase.from('users').select('*').eq('id', key).maybeSingle();
+      if (error) throw error;
+      if (!data) return null;
+      return { id: data.id, userId: data.user_id, name: data.name, role: data.role, doctorId: data.doctor_id || null, doctorCode: data.user_id };
+    }
+    return null;
+  }
+
+  async function _dbGetAll(storeName) {
+    if (storeName === 'users') {
+      const { data, error } = await supabase.from('users').select('*');
+      if (error) throw error;
+      return (data || []).map(d => ({ id: d.id, userId: d.user_id, name: d.name, role: d.role, doctorId: d.doctor_id || null, doctorCode: d.user_id }));
+    }
+    return [];
+  }
+
+  async function _dbGetByIndex(storeName, indexName, value) {
+    if (storeName === 'patients' && indexName === 'doctorId') {
+      return getPatientsByDoctorId(value);
+    }
+    return [];
+  }
+
+  async function _dbPut(storeName, obj) {
+    if (storeName === 'patients') return updatePatientProfile(obj);
+    return obj;
+  }
+
   async function init() {
-    await openDB();
-    console.log('[Auth] IndexedDB ready');
+    const cfg = getConfig();
+    if (!window.supabase || !window.supabase.createClient) {
+      throw new Error('Supabase client library not loaded');
+    }
+    supabase = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+    console.log('[Auth] Supabase backend ready');
   }
 
-  // ─── Public API ───────────────────────────────────────────────────────────
   return {
     init,
     register,
@@ -347,25 +528,25 @@ const Auth = (() => {
     logout,
     getSession,
     hashPassword,
-    generateDoctorCode,
-    // patient
+    generateDoctorCode: (id) => id,
     getPatientByUserId,
     getPatientsByDoctorId,
     updatePatientProfile,
-    // thresholds
     saveThreshold,
     getThresholdForPatient,
     getThresholdHistoryForPatient,
-    // exercise history
     saveExerciseRecord,
     getExerciseHistoryForPatient,
-    // doctor
     getDoctorById,
     getAllDoctors,
-    // db helpers (for portal modules)
-    _dbGet: dbGet,
-    _dbGetAll: dbGetAll,
-    _dbGetByIndex: dbGetByIndex,
-    _dbPut: dbPut,
+    saveExercisePrescription,
+    getExercisePrescriptionsForPatient,
+    archiveExercisePrescription,
+    subscribeToPatientUpdates,
+    subscribeToDoctorUpdates,
+    _dbGet,
+    _dbGetAll,
+    _dbGetByIndex,
+    _dbPut,
   };
 })();
