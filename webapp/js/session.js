@@ -413,7 +413,7 @@ const Session = (() => {
         Duration: ${_formatDuration(session.duration_s)} &nbsp;|&nbsp;
         Points: ${session.rows?.length ?? session.stats?.dataPoints ?? 0} &nbsp;|&nbsp;
         Max Accel: ${session.stats?.maxAccelMag ?? '—'} g &nbsp;|&nbsp;
-        Avg Temp: ${session.stats?.avgTemp ?? '—'} °C
+        
         ${session.notes ? `<br><em>${session.notes}</em>` : ''}
       `;
     }

@@ -17,6 +17,7 @@ const App = (() => {
   let frameCount      = 0;
   let rateInterval    = null;
   let rate            = 0;
+  let latestSensorData = { pitch: 0, roll: 0 };
 
   // Temp stats
   let tempMin = Infinity, tempMax = -Infinity, tempSum = 0, tempCount = 0;
@@ -193,6 +194,7 @@ const App = (() => {
 
   async function _fillExerciseBanner() {
     try {
+      bindAuthEvents();
       const patient = await Auth.getPatientByUserId(userSession.userId);
       if (!patient) return;
       const threshold = await Auth.getThresholdForPatient(patient.id);
@@ -377,42 +379,12 @@ const App = (() => {
 
   // ─── Auth Event Listeners ─────────────────────────────────────────────────
   function bindAuthEvents() {
-    // Toggle login/register
-    document.getElementById('goToRegister')?.addEventListener('click', (e) => {
-      e.preventDefault();
-      document.getElementById('auth-login').classList.add('hidden');
-      document.getElementById('auth-register').classList.remove('hidden');
-    });
-    document.getElementById('goToLogin')?.addEventListener('click', (e) => {
-      e.preventDefault();
-      document.getElementById('auth-register').classList.add('hidden');
-      document.getElementById('auth-login').classList.remove('hidden');
-    });
-
-    // Role selector in register
-    document.querySelectorAll('.role-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const isDoctorCode = btn.dataset.role === 'patient';
-        document.getElementById('doctorCodeGroup').style.display = isDoctorCode ? 'block' : 'none';
-      });
-    });
-
     // Login
     document.getElementById('loginBtn')?.addEventListener('click', doLogin);
     document.getElementById('loginPassword')?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') doLogin();
     });
 
-    // Register
-    document.getElementById('registerBtn')?.addEventListener('click', doRegister);
-    document.getElementById('regDoctorUserId')?.addEventListener('input', (e) => {
-      e.target.value = e.target.value.toUpperCase();
-    });
-    document.getElementById('regUserId')?.addEventListener('input', (e) => {
-      e.target.value = e.target.value.toUpperCase();
-    });
     document.getElementById('loginUserId')?.addEventListener('input', (e) => {
       e.target.value = e.target.value.toUpperCase();
     });
@@ -422,17 +394,18 @@ const App = (() => {
   }
 
   async function doLogin() {
-    const loginId  = document.getElementById('loginUserId')?.value.trim().toUpperCase();
+    const loginId  = document.getElementById('loginUserId')?.value?.trim()?.toUpperCase() || '';
     const password = document.getElementById('loginPassword')?.value;
     const errorEl  = document.getElementById('loginError');
     const btnText  = document.getElementById('loginBtnText');
     const btnLoad  = document.getElementById('loginBtnLoader');
 
-    if (btnText) btnText.classList.add('hidden');
+    if (btnText) btnText.classList.add("hidden");
     if (btnLoad) btnLoad.classList.remove('hidden');
     if (errorEl) errorEl.classList.add('hidden');
 
     try {
+      bindAuthEvents();
       const session = await Auth.login(loginId, password);
       showApp(session);
     } catch (e) {
@@ -444,20 +417,21 @@ const App = (() => {
   }
 
   async function doRegister() {
-    const name         = document.getElementById('regName')?.value.trim();
-    const preferredId  = document.getElementById('regUserId')?.value.trim().toUpperCase();
+    const name         = document.getElementById('regName')?.value?.trim();
+    const preferredId  = document.getElementById('regUserId')?.value?.trim()?.toUpperCase() || '';
     const password     = document.getElementById('regPassword')?.value;
-    const doctorUserId = document.getElementById('regDoctorUserId')?.value.trim().toUpperCase();
+    const doctorUserId = document.getElementById('regDoctorUserId')?.value?.trim()?.toUpperCase() || '';
     const activeRole = document.querySelector('.role-btn.active')?.dataset.role || 'doctor';
     const errorEl    = document.getElementById('registerError');
     const btnText    = document.getElementById('registerBtnText');
     const btnLoad    = document.getElementById('registerBtnLoader');
 
-    if (btnText) btnText.classList.add('hidden');
+    if (btnText) btnText.classList.add("hidden");
     if (btnLoad) btnLoad.classList.remove('hidden');
     if (errorEl) errorEl.classList.add('hidden');
 
     try {
+      bindAuthEvents();
       const registration = await Auth.register(activeRole, name, preferredId, password, doctorUserId);
       showToast(`Account created. Your User ID: ${registration.loginId}`, 'success');
       const session = await Auth.login(registration.loginId, password);
@@ -500,7 +474,7 @@ const App = (() => {
     document.getElementById('connectBtn')?.addEventListener('click', () => {
       const modeEl = document.querySelector('.toggle-btn.active');
       const mode   = modeEl?.dataset.mode || 'wifi';
-      const url    = document.getElementById('wsUrl')?.value.trim();
+      const url    = document.getElementById('wsUrl')?.value?.trim();
       const autoRec= document.getElementById('autoReconnect')?.checked;
       stopDemo();
       Connection.connect({ mode, url, autoReconnect: autoRec });
@@ -563,10 +537,11 @@ const App = (() => {
   // ─── Init ─────────────────────────────────────────────────────────────────
   async function init() {
     try {
+      bindAuthEvents();
       await Auth.init();
       await Session.init();
       Charts.init();
-      bindAuthEvents();
+       
       bindAppEvents();
       setupConnectionHandlers();
       startRateCounter();
@@ -592,7 +567,7 @@ const App = (() => {
     console.log('[App] PhysioPulse initialized ✓');
   }
 
-  return { init, showToast, navigateTo, logout };
+  return { init, showToast, navigateTo, logout, startDemo, stopDemo, isDemo: () => demoMode, getLatestData: () => latestSensorData };
 })();
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────

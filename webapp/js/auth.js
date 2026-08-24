@@ -644,7 +644,23 @@ const Auth = (() => {
     }
   }
 
-  // ─── Public API ───────────────────────────────────────────────────────────
+
+  async function createPatient(data) {
+    if (typeof API !== 'undefined') {
+      return API.createPatient(data);
+    }
+    throw new Error("Offline mode not supported for creating patients");
+  }
+
+  async function resetPatientPassword(patientId, password) {
+    if (typeof API !== 'undefined') {
+      return API.resetPatientPassword(patientId, password);
+    }
+    throw new Error("Offline mode not supported for resetting passwords");
+  }
+
+  // ─── Public API ───
+
   return {
     init,
     register,
@@ -653,6 +669,8 @@ const Auth = (() => {
     getSession,
     // patient
     getPatientById,
+    createPatient,
+    resetPatientPassword,
     getPatientByUserId,
     getPatientsByDoctorId,
     updatePatientProfile,

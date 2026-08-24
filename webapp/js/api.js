@@ -10,7 +10,7 @@ const API = (() => {
 
   function getBaseUrl() {
     const origin = window.location.origin;
-    if (origin && !origin.startsWith('file:') && !origin.includes('192.168.4.1')) {
+    if (origin && !origin.startsWith('file:') && !origin.includes('192.168.4.1') && !origin.includes(':5500')) {
       return origin;
     }
     return DEFAULT_BACKEND_URL;
@@ -233,6 +233,21 @@ const API = (() => {
     return `${getBaseUrl()}/api/sessions/${sessionId}/csv`;
   }
 
+
+  async function createPatient(data) {
+    return request('/api/patients/create', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async function resetPatientPassword(patientId, password) {
+    return request(`/api/patients/${patientId}/reset-password`, {
+      method: 'PUT',
+      body: JSON.stringify({ password }),
+    });
+  }
+
   return {
     checkHealth,
     isOnline: () => isBackendOnline,
@@ -245,7 +260,12 @@ const API = (() => {
     getMe,
     getDoctors,
     // Patients
+    createPatient,
+    resetPatientPassword,
+
     getPatients,
+    createPatient,
+    resetPatientPassword,
     getPatient,
     getPatientByUserId,
     updatePatient,

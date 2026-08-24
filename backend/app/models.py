@@ -16,7 +16,8 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(50), nullable=False)  # "doctor" or "patient"
-    doctor_code = Column(String(50), nullable=True, index=True)  # For doctors, e.g. "DR0001"
+    doctor_code = Column(String(50), nullable=True, index=True)
+    patient_code = Column(String(50), nullable=True, index=True, unique=True)  # For doctors, e.g. "DR0001"
     created_at = Column(DateTime, default=utc_now)
 
     # Relationships

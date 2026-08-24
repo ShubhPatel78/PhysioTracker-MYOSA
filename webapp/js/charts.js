@@ -121,6 +121,13 @@ const Charts = (() => {
   }
 
   // ─── Initialize All Charts ────────────────────────────────────────────
+  
+  function safeCreateChart(id, config) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    return new Chart(el, config);
+  }
+
   function init() {
     applyDefaults();
 
@@ -130,7 +137,7 @@ const Charts = (() => {
     charts.miniTemp  = createMiniChart('miniTempChart', [C.amber], true);
 
     // ── Live Charts ──
-    charts.accel = new Chart(document.getElementById('accelChart'), {
+    charts.accel = safeCreateChart('accelChart', {
       type: 'line',
       data: {
         labels: [],
@@ -143,7 +150,7 @@ const Charts = (() => {
       options: baseLineOptions('g')
     });
 
-    charts.gyro = new Chart(document.getElementById('gyroChart'), {
+    charts.gyro = safeCreateChart('gyroChart', {
       type: 'line',
       data: {
         labels: [],
@@ -156,7 +163,7 @@ const Charts = (() => {
       options: baseLineOptions('°/s')
     });
 
-    charts.temp = new Chart(document.getElementById('tempChart'), {
+    charts.temp = safeCreateChart('tempChart', {
       type: 'line',
       data: {
         labels: [],
@@ -165,7 +172,7 @@ const Charts = (() => {
       options: baseLineOptions('°C')
     });
 
-    charts.rom = new Chart(document.getElementById('romChart'), {
+    charts.rom = safeCreateChart('romChart', {
       type: 'line',
       data: {
         labels: [],
@@ -179,7 +186,7 @@ const Charts = (() => {
     });
 
     // ── Session Charts ──
-    charts.sessionAccel = new Chart(document.getElementById('sessionAccelChart'), {
+    charts.sessionAccel = safeCreateChart('sessionAccelChart', {
       type: 'line',
       data: {
         labels: [],
@@ -192,7 +199,7 @@ const Charts = (() => {
       options: baseLineOptions('g')
     });
 
-    charts.sessionGyro = new Chart(document.getElementById('sessionGyroChart'), {
+    charts.sessionGyro = safeCreateChart('sessionGyroChart', {
       type: 'line',
       data: {
         labels: [],
@@ -256,12 +263,12 @@ const Charts = (() => {
     // Mini charts (dashboard)
     addPoint(charts.miniAccel, label, ax, ay, az);
     addPoint(charts.miniGyro, label, gx, gy, gz);
-    addPoint(charts.miniTemp, label, tp);
+    // removed temp
 
     // Live charts
     addPoint(charts.accel, label, ax, ay, az);
     addPoint(charts.gyro, label, gx, gy, gz);
-    addPoint(charts.temp, label, tp);
+    // removed temp
     addPoint(charts.rom, label, pitch, roll, yaw);
 
     // Session charts (only if recording)
@@ -282,7 +289,7 @@ const Charts = (() => {
     const rows = sessionData.rows;
     const labels = rows.map((r, i) => (i * (sessionData.interval_ms / 1000)).toFixed(1) + 's');
 
-    new Chart(document.getElementById('playbackAccelChart'), {
+    safeCreateChart('playbackAccelChart', {
       type: 'line',
       data: {
         labels,
@@ -295,7 +302,7 @@ const Charts = (() => {
       options: baseLineOptions('g')
     });
 
-    new Chart(document.getElementById('playbackGyroChart'), {
+    safeCreateChart('playbackGyroChart', {
       type: 'line',
       data: {
         labels,
@@ -308,7 +315,7 @@ const Charts = (() => {
       options: baseLineOptions('°/s')
     });
 
-    new Chart(document.getElementById('playbackTempChart'), {
+    safeCreateChart('playbackTempChart', {
       type: 'line',
       data: {
         labels,

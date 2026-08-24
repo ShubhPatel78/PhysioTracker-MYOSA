@@ -16,12 +16,13 @@ const Connection = (() => {
   let bleServer = null;
   let bleService = null;
 
-  // BLE UUIDs (must match firmware)
-  const BLE_SERVICE_UUID    = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
-  const BLE_CHAR_JSON_UUID  = 'beb5483e-36e1-4688-b7f5-ea07361b26a4';
-  const BLE_CHAR_ACCEL_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a1';
-  const BLE_CHAR_GYRO_UUID  = 'beb5483e-36e1-4688-b7f5-ea07361b26a2';
-  const BLE_CHAR_TEMP_UUID  = 'beb5483e-36e1-4688-b7f5-ea07361b26a3';
+  // BLE UUIDs (matching firmware cheat sheet)
+  const BLE_SERVICE_UUID         = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
+  const BLE_CHAR_TELEMETRY_UUID  = 'beb5483e-36e1-4688-b7f5-ea07361b26a1';
+  const BLE_CHAR_COMMAND_UUID    = 'beb5483e-36e1-4688-b7f5-ea07361b26a2';
+
+  let charTelemetry = null;
+  let charCommand = null;
 
   // Connection mode: 'wifi' | 'ble'
   let mode = 'wifi';
@@ -146,7 +147,6 @@ const Connection = (() => {
     };
   }
 
-  // ─── BLE Connection ───────────────────────────────────────────────────────
   async function connectBLE() {
     if (!navigator.bluetooth) {
       App.showToast('Web Bluetooth not supported on this browser/device', 'error');
@@ -156,6 +156,7 @@ const Connection = (() => {
     try {
       bleDevice = await navigator.bluetooth.requestDevice({
         filters: [
+          { namePrefix: 'PhysioTracker' },
           { namePrefix: 'PhysioPulse' },
           { services: [BLE_SERVICE_UUID] }
         ],
@@ -167,17 +168,32 @@ const Connection = (() => {
       bleServer = await bleDevice.gatt.connect();
       bleService = await bleServer.getPrimaryService(BLE_SERVICE_UUID);
 
-      // Subscribe to JSON characteristic (easiest way - single notify)
-      const charJSON = await bleService.getCharacteristic(BLE_CHAR_JSON_UUID);
-      await charJSON.startNotifications();
-      charJSON.addEventListener('characteristicvaluechanged', (evt) => {
+      // Subscribe to Telemetry Characteristic
+      charTelemetry = await bleService.getCharacteristic(BLE_CHAR_TELEMETRY_UUID);
+      await charTelemetry.startNotifications();
+      charTelemetry.addEventListener('characteristicvaluechanged', (evt) => {
         const decoder = new TextDecoder();
         const json = decoder.decode(evt.target.value);
         try {
           const data = JSON.parse(json);
-          emit('data', data);
+          // Normalize telemetry data: { r, a, tw, st, msg } -> standard app format
+          emit('data', {
+            pitch: data.a !== undefined ? data.a : (data.pitch || 0),
+            reps: data.r !== undefined ? data.r : 0,
+            timeWindow: data.tw !== undefined ? data.tw : 0,
+            stage: data.st !== undefined ? data.st : 0,
+            message: data.msg || '',
+            raw: data
+          });
         } catch (e) {}
       });
+
+      // Get Command Characteristic
+      try {
+        charCommand = await bleService.getCharacteristic(BLE_CHAR_COMMAND_UUID);
+      } catch (err) {
+        console.warn('[BLE] Command characteristic not found:', err);
+      }
 
       setStatus('connected');
       App.showToast(`BLE connected: ${bleDevice.name}`, 'success');
@@ -187,6 +203,20 @@ const Connection = (() => {
       if (e.name !== 'NotFoundError') {
         App.showToast('BLE connection failed: ' + e.message, 'error');
       }
+    }
+  }
+
+  async function sendCommand(cmd) {
+    if (status !== 'connected') {
+      console.warn('[Connection] Cannot send command, not connected');
+      return;
+    }
+    if (mode === 'ble' && charCommand) {
+      const encoder = new TextEncoder();
+      await charCommand.writeValueWithoutResponse(encoder.encode(cmd));
+      console.log('[BLE TX CMD]', cmd);
+    } else {
+      send(cmd);
     }
   }
 
@@ -270,5 +300,5 @@ const Connection = (() => {
   function getStatus() { return status; }
   function getMode() { return mode; }
 
-  return { on, connect, disconnect, send, calibrate, fetchDeviceInfo, getStatus, getMode };
+  return { on, connect, disconnect, send, sendCommand, calibrate, fetchDeviceInfo, getStatus, getMode };
 })();

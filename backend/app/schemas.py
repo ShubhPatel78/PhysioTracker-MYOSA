@@ -9,9 +9,10 @@ class UserRegister(BaseModel):
     password: str = Field(..., min_length=6)
     role: str = Field("doctor", pattern="^(doctor|patient)$")
     doctor_code: Optional[str] = None
+    patient_code: Optional[str] = None
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 class UserResponse(BaseModel):
@@ -22,6 +23,7 @@ class UserResponse(BaseModel):
     email: str
     role: str
     doctor_code: Optional[str] = None
+    patient_code: Optional[str] = None
     created_at: Optional[datetime] = None
 
 class AuthResponse(BaseModel):
@@ -32,6 +34,16 @@ class AuthResponse(BaseModel):
     doctor_id: Optional[int] = None
 
 # ─── Patient Schemas ─────────────────────────────────────────────────────────
+
+class DoctorCreatePatient(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    age: Optional[int] = None
+    condition: Optional[str] = None
+    password: str = Field(..., min_length=6)
+
+class PasswordReset(BaseModel):
+    password: str = Field(..., min_length=6)
+
 class PatientUpdate(BaseModel):
     name: Optional[str] = None
     age: Optional[int] = None
@@ -51,6 +63,7 @@ class PatientResponse(BaseModel):
     created_at: Optional[datetime] = None
     doctor_name: Optional[str] = None
     doctor_code: Optional[str] = None
+    patient_code: Optional[str] = None
 
 # ─── Threshold Schemas ───────────────────────────────────────────────────────
 class ThresholdCreate(BaseModel):

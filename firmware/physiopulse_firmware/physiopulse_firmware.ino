@@ -1,47 +1,30 @@
-#include <HTTP_Method.h>
-#include <Middlewares.h>
-#include <Uri.h>
-#include <WebServer.h>
-
 /**
- * ╔══════════════════════════════════════════════════════════════════════╗
- * ║          PhysioPulse – ESP32 Firmware v1.0                          ║
- * ║          MYOSA 6.0 Competition – Physiotherapy Monitoring System    ║
- * ╚══════════════════════════════════════════════════════════════════════╝
+ * ╔════════════════════════════════════════════════════════════════════════════╗
+ * ║          PhysioTracker – 10-Exercise Telemetry & BLE Engine v5.3           ║
+ * ║          MYOSA ESP32-WROVER + MPU-6050 Physiotherapy Monitoring Hub        ║
+ * ╚════════════════════════════════════════════════════════════════════════════╝
  *
- * Hardware:
- *   - MYOSA ESP32-WROVER Board (WiFi + BLE)
- *   - MYOSA MPU-6050 (GY-521) Sensor Board at I2C address 0x69
+ * Supported 10 Exercises:
+ *   1. Bicep Curl
+ *   2. Front Shoulder Raise
+ *   3. Side Shoulder Raise
+ *   4. Hand Circular Movement
+ *   5. Wrist Circumduction
+ *   6. Shoulder Overhead Press
+ *   7. Elbow / Triceps Extension
+ *   8. Knee Flexion / Extension
+ *   9. Cervical / Neck Rotation
+ *  10. Wrist Flexion / Extension
  *
- * Communication:
- *   - WiFi AP Mode: Creates hotspot "PhysioPulse-XXXX" / "physio123"
- *   - HTTP Server (port 80): Serves the PhysioPulse web app
- *   - WebSocket Server (port 81): Real-time JSON sensor stream at ~20 Hz
- *   - BLE GATT Server: Sensor data as BLE characteristics
- *
- * Web App:
- *   Stored in LittleFS flash filesystem and served via HTTP.
- *   Access at: http://192.168.4.1 or http://physiopulse.local
- *
- * Required Libraries (install via Arduino Library Manager):
- *   - WebSockets by Markus Sattler (v2.3.x)
- *   - ESPAsyncWebServer (or use the simple WiFiServer)
- *   - ArduinoJson by Benoit Blanchon (v6.x)
- *   - ESP32 BLE Arduino (built-in with ESP32 board package)
- *   - LittleFS (built-in with ESP32 board package)
- *
- * Board Settings in Arduino IDE:
- *   Board: "ESP32 Wrover Module" or "ESP32 Dev Module"
- *   Partition Scheme: "Default 4MB with spiffs" or "Huge APP (3MB No OTA/1MB SPIFFS)"
- *   Flash Size: 4MB
- *   Upload Speed: 115200 or 921600
- *
- * Upload Steps:
- *   1. Upload LittleFS data: Sketch > ESP32 LittleFS Data Upload (plugin needed)
- *   2. Upload firmware: Sketch > Upload
+ * BLE GATT Specification:
+ *   Device Name:        PhysioTracker
+ *   Service UUID:       4fafc201-1fb5-459e-8fcc-c5c9c331914b
+ *   Telemetry UUID:     beb5483e-36e1-4688-b7f5-ea07361b26a1 (Notify, 10Hz)
+ *     Format: {"r":12, "a":45.2, "tw":2.1, "st":4, "msg":"Curling Up..."}
+ *   Command UUID:       beb5483e-36e1-4688-b7f5-ea07361b26a2 (Write)
+ *     Commands: EX:<Name>, CAL1, CAL2, BASE:<pin>, TGT:<pin>:<reps>, END
  */
 
-// ─── Library Includes ──────────────────────────────────────────────────────
 #include <Arduino.h>
 #include <Wire.h>
 #include <WiFi.h>
@@ -55,68 +38,484 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <Preferences.h>
 #include "mpu6050.h"
 
-// ─── Configuration ─────────────────────────────────────────────────────────
-#define WIFI_AP_SSID_PREFIX  "PhysioPulse"
-#define WIFI_AP_PASSWORD     "physio123"
-#define WIFI_CHANNEL         6
-#define WIFI_MAX_CLIENTS     4
+// ─── Constants & Limits ────────────────────────────────────────────────────
+#define DEVICE_BLE_NAME           "PhysioTracker"
+#define DOCTOR_PIN                "1234"
+#define COLLECT_SAMPLES           40
+#define STABILITY_STD_LIMIT       0.05f
+#define CROSSING_HYSTERESIS       5.0f 
+#define MAX_SAMPLES               150
+#define WRIST_CHEAT_ALIGNMENT     0.7f
+#define BASELINE_MOTION_ONSET_DEG 10.0f
+#define DEFAULT_CIRCULAR_REP_TGT  10.0f
+#define SENSOR_INTERVAL_MS        20   // 50Hz sensor loop
+#define TELEMETRY_INTERVAL_MS     100  // 10Hz BLE stream
 
-// Optional: Connect to existing WiFi network (leave blank to use AP-only mode)
-#define STA_SSID    ""   // e.g., "HomeRouter"
-#define STA_PASS    ""   // e.g., "routerpass"
+// BLE UUIDs
+#define BLE_SERVICE_UUID          "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define BLE_CHAR_TELEMETRY_UUID   "beb5483e-36e1-4688-b7f5-ea07361b26a1"
+#define BLE_CHAR_COMMAND_UUID     "beb5483e-36e1-4688-b7f5-ea07361b26a2"
 
-#define HTTP_PORT   80
-#define WS_PORT     81
-
-// MPU-6050 I2C address (AD0 = HIGH on MYOSA board)
-#define MPU_ADDR    0x69
-
-// Sensor read interval in ms (50ms = 20 Hz)
-#define SENSOR_INTERVAL_MS  50
-
-// BLE UUIDs (custom service for PhysioPulse)
-#define BLE_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define BLE_CHAR_ACCEL_UUID     "beb5483e-36e1-4688-b7f5-ea07361b26a1"
-#define BLE_CHAR_GYRO_UUID      "beb5483e-36e1-4688-b7f5-ea07361b26a2"
-#define BLE_CHAR_TEMP_UUID      "beb5483e-36e1-4688-b7f5-ea07361b26a3"
-#define BLE_CHAR_JSON_UUID      "beb5483e-36e1-4688-b7f5-ea07361b26a4"
-
-// I2C Pins (default on ESP32; adjust if different on MYOSA board)
-#define I2C_SDA  21
-#define I2C_SCL  22
-
-// LED pin (onboard LED for status indication)
 #define STATUS_LED  2
 
-// ─── Global Objects ────────────────────────────────────────────────────────
-MPU6050       mpu(MPU_ADDR);
-WebServer     httpServer(HTTP_PORT);
-WebSocketsServer wsServer(WS_PORT);
+// ─── 3D Vector Math Helpers ────────────────────────────────────────────────
+struct Vec3 { float x, y, z; };
 
-// BLE
-BLEServer          *pBLEServer       = nullptr;
-BLECharacteristic  *pCharAccel       = nullptr;
-BLECharacteristic  *pCharGyro        = nullptr;
-BLECharacteristic  *pCharTemp        = nullptr;
-BLECharacteristic  *pCharJSON        = nullptr;
-bool                bleDeviceConnected = false;
+Vec3 normalize(Vec3 vec) {
+  float mag = sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z);
+  if (mag < 1e-6f) return {0, 0, 0};
+  return {vec.x / mag, vec.y / mag, vec.z / mag};
+}
+Vec3 crossProduct(Vec3 a, Vec3 b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
+float dotProduct(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+Vec3 vecAdd(Vec3 a, Vec3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+Vec3 vecScale(Vec3 a, float s) { return {a.x * s, a.y * s, a.z * s}; }
 
-// State
-struct SensorState {
-  float accelX, accelY, accelZ;
-  float gyroX,  gyroY,  gyroZ;
-  float temperature;
-  float gyroOffX = 0, gyroOffY = 0, gyroOffZ = 0;
-  unsigned long timestamp = 0;
-  bool calibrated = false;
-} sensorState;
+// ─── State Machine & Globals ───────────────────────────────────────────────
+Preferences prefs;
+MPU6050 mpu(0x69);
+WebServer httpServer(80);
+WebSocketsServer wsServer(81);
 
-unsigned long lastSensorRead = 0;
-uint8_t  wsClientCount = 0;
+BLEServer *pBLEServer = nullptr;
+BLECharacteristic *pCharTelemetry = nullptr;
+BLECharacteristic *pCharCommand = nullptr;
+bool bleDeviceConnected = false;
+uint8_t wsClientCount = 0;
+
+// Gravity & Fusion
+Vec3 filteredGravity = {0, 0, -1};
+unsigned long lastFusionMicros = 0;
+bool fusionInitialized = false;
+Vec3 u = {0, 0, 0}, v = {0, 0, 0}, n = {0, 0, 0}, e1 = {0, 0, 0}, e2 = {0, 0, 0};
+Vec3 lastGyro = {0, 0, 0};
+
+// Telemetry State
+String currentExercise = "Bicep Curl";
+String maxKey = "bc_max";
+String swayKey = "bc_sway";
+int reps = 0;
+float liveAngle = 0.0f;
+float twistError = 0.0f;
+bool isRaised = false;
+String formStatus = "Ready";
+float rawAngleForUnwrap = 0.0f;
+int calibState = 0; // 0=Uncalibrated, 1=Step1 Done, 2=Step2 Done, 3=Baseline Rec, 4=Ready
+bool sessionLogged = false;
+bool sessionComplete = false;
+
+// Circular Exercise State
+int lastLoopCount = 0;
+float circleLiveAngle = 0.0f;
+float circleRawForUnwrap = 0.0f;
+bool targetIsDoctorConfirmed = false;
+
+// Targets
+float targetMaxAngle = 75.0f;
+float maxDeviationPlane = 20.0f;
+
+// Calibration & Baseline Buffers
+bool collecting = false;
+int collectStage = 0;
+int collectCount = 0;
+unsigned long lastCollectMillis = 0;
+Vec3 collectSum = {0, 0, 0}, collectSumSq = {0, 0, 0};
+
+float angleBuffer[MAX_SAMPLES];
+float swayBuffer[MAX_SAMPLES];
+int sampleIndex = 0;
+unsigned long lastSampleMillis = 0;
+unsigned long baselineStartTime = 0;
+bool baseline_started = false;
+bool angleResetPending = false;
+unsigned long lastTelemetryMillis = 0;
+
+// ─── Function Prototypes ───────────────────────────────────────────────────
+void processBicepCurl();
+void processFrontRaise();
+void processSideRaise();
+void processHandCircle();
+void processWristCircle();
+void processShoulderPress();
+void processElbowExtension();
+void processKneeFlexion();
+void processNeckRotation();
+void processWristFlexion();
+void processCommand(const String& cmd);
+
+// ─── Gravity Estimator ─────────────────────────────────────────────────────
+Vec3 updateGravityEstimate(Vec3 gyro, Vec3 accel, float dt) {
+  if (!fusionInitialized) {
+    filteredGravity = normalize(accel);
+    fusionInitialized = true;
+    return filteredGravity;
+  }
+  Vec3 predicted = vecAdd(filteredGravity, vecScale(crossProduct(filteredGravity, gyro), dt));
+  predicted = normalize(predicted);
+  float accelMag = sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
+  float magError = fabs(accelMag - 9.80665f) / 9.80665f;
+  float accelTrust = 0.02f * constrain(1.0f - magError * 3.0f, 0.0f, 1.0f);
+  Vec3 accelDir = normalize(accel);
+  Vec3 fused = vecAdd(vecScale(predicted, 1.0f - accelTrust), vecScale(accelDir, accelTrust));
+  filteredGravity = normalize(fused);
+  return filteredGravity;
+}
+
+float angleDiff(float a, float b) {
+  float d = fmod(b - a + 180.0f, 360.0f);
+  if (d < 0) d += 360.0f;
+  return d - 180.0f;
+}
+
+void sortArray(float *arr, int len) {
+  for (int i = 1; i < len; i++) {
+    float key = arr[i];
+    int j = i - 1;
+    while (j >= 0 && arr[j] > key) {
+      arr[j + 1] = arr[j];
+      j = j - 1;
+    }
+    arr[j + 1] = key;
+  }
+}
+
+// ─── Calibration Step 1 & 2 ────────────────────────────────────────────────
+void beginCollection(int stage) {
+  collecting = true;
+  collectStage = stage;
+  collectCount = 0;
+  collectSum = {0, 0, 0};
+  collectSumSq = {0, 0, 0};
+  lastCollectMillis = millis();
+  formStatus = (stage == 1) ? "Hold still: capturing rest..." : "Hold still: capturing direction...";
+}
+
+bool serviceCollection() {
+  if (!collecting) return false;
+  if (millis() - lastCollectMillis < 10) return false;
+  lastCollectMillis = millis();
+
+  Vec3 g = filteredGravity;
+  collectSum = vecAdd(collectSum, g);
+  collectSumSq = vecAdd(collectSumSq, {g.x * g.x, g.y * g.y, g.z * g.z});
+  collectCount++;
+
+  if (collectCount >= COLLECT_SAMPLES) {
+    collecting = false;
+    Vec3 mean = vecScale(collectSum, 1.0f / collectCount);
+    Vec3 meanSq = vecScale(collectSumSq, 1.0f / collectCount);
+    float varX = meanSq.x - mean.x * mean.x;
+    float varY = meanSq.y - mean.y * mean.y;
+    float varZ = meanSq.z - mean.z * mean.z;
+    float stdTotal = sqrt(max(varX, 0.0f) + max(varY, 0.0f) + max(varZ, 0.0f));
+
+    if (stdTotal > STABILITY_STD_LIMIT) {
+      formStatus = (collectStage == 1) ? "Not still enough -- retry Step 1" : "Not still enough -- retry Step 2";
+      return true;
+    }
+
+    Vec3 result = normalize(mean);
+    if (collectStage == 1) {
+      u = result;
+      calibState = 1;
+      formStatus = "Step 1 OK. Move arm UP slightly for Step 2";
+    } else {
+      v = result;
+      Vec3 crossRaw = crossProduct(u, v);
+      if (sqrt(crossRaw.x * crossRaw.x + crossRaw.y * crossRaw.y + crossRaw.z * crossRaw.z) < 0.15f) {
+        calibState = 1;
+        formStatus = "Move arm a bit more, then retry Step 2";
+        return true;
+      }
+      n = normalize(crossRaw);
+      e1 = u;
+      e2 = normalize(crossProduct(n, u));
+
+      rawAngleForUnwrap = 0.0f;
+      liveAngle = 0.0f;
+      circleRawForUnwrap = 0.0f;
+      circleLiveAngle = 0.0f;
+      reps = 0;
+      isRaised = false;
+
+      bool isCircular = (currentExercise == "Hand Circular Movement" || currentExercise == "Wrist Circumduction");
+
+      if (prefs.isKey(maxKey.c_str()) && prefs.isKey(swayKey.c_str())) {
+        targetMaxAngle = prefs.getFloat(maxKey.c_str());
+        maxDeviationPlane = prefs.getFloat(swayKey.c_str());
+        targetIsDoctorConfirmed = true;
+        calibState = 4;
+        formStatus = "Profile Loaded. Ready!";
+      } else if (isCircular) {
+        targetMaxAngle = DEFAULT_CIRCULAR_REP_TGT;
+        maxDeviationPlane = 0.0f;
+        targetIsDoctorConfirmed = false;
+        calibState = 4;
+        formStatus = "Default Target (Dr. Not Yet Set). Ready!";
+      } else {
+        calibState = 4; // allow direct usage
+        formStatus = "Calibrated. Ready!";
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+// ─── Exercise Processors (10 Exercises) ─────────────────────────────────────
+
+// 1. Bicep Curl
+void processBicepCurl() {
+  float safeTarget = min(targetMaxAngle, 175.0f);
+  float THRESHOLD_UP = safeTarget - 15.0f;
+  float THRESHOLD_DOWN = 20.0f;
+  if (THRESHOLD_DOWN >= THRESHOLD_UP) THRESHOLD_DOWN = THRESHOLD_UP - 10.0f;
+  float HYPEREXTEND_LIMIT = min(-15.0f, THRESHOLD_DOWN - 20.0f);
+  float MAX_SWAY = maxDeviationPlane + 5.0f;
+
+  if (fabs(twistError) > MAX_SWAY) formStatus = "Bad Form: Keep Movement Aligned!";
+  else if (liveAngle < HYPEREXTEND_LIMIT) formStatus = "Bad Form: Arm Dropped";
+  else {
+    if (liveAngle > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Hold Peak Curl..."; }
+    else if (liveAngle < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Rep Complete! Ready"; }
+    else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) formStatus = isRaised ? "Lowering..." : "Curling Up...";
+  }
+}
+
+// 2. Front Shoulder Raise
+void processFrontRaise() {
+  float safeTarget = min(targetMaxAngle, 175.0f);
+  float THRESHOLD_UP = safeTarget - 15.0f;
+  float THRESHOLD_DOWN = 20.0f;
+  if (THRESHOLD_DOWN >= THRESHOLD_UP) THRESHOLD_DOWN = THRESHOLD_UP - 10.0f;
+  float MAX_SWAY = maxDeviationPlane + 5.0f;
+
+  if (fabs(twistError) > MAX_SWAY) formStatus = "Bad Form: Stop Swaying Outward!";
+  else {
+    if (liveAngle > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Hold Height..."; }
+    else if (liveAngle < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Rep Complete! Ready"; }
+    else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) formStatus = isRaised ? "Lowering Control..." : "Raising Forward...";
+  }
+}
+
+// 3. Side Shoulder Raise
+void processSideRaise() {
+  float safeTarget = min(targetMaxAngle, 175.0f);
+  float THRESHOLD_UP = safeTarget - 15.0f;
+  float THRESHOLD_DOWN = 20.0f;
+  if (THRESHOLD_DOWN >= THRESHOLD_UP) THRESHOLD_DOWN = THRESHOLD_UP - 10.0f;
+  float MAX_SWAY = maxDeviationPlane + 3.0f;
+
+  if (fabs(twistError) > MAX_SWAY) formStatus = "Bad Form: Keep Arm Strictly Sideways!";
+  else {
+    if (liveAngle > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Hold Height..."; }
+    else if (liveAngle < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Rep Complete! Ready"; }
+    else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) formStatus = isRaised ? "Lowering Control..." : "Raising Sideways...";
+  }
+}
+
+// 4. Hand Circular Movement
+void processHandCircle() {
+  if (sessionComplete) return;
+  int currentLoopCount = (int)(fabs(circleLiveAngle) / 360.0f);
+  if (currentLoopCount > lastLoopCount) {
+    reps += (currentLoopCount - lastLoopCount);
+    lastLoopCount = currentLoopCount;
+    formStatus = "Loop Complete! Keep Circling...";
+  } else {
+    formStatus = "Circling...";
+  }
+  if (targetMaxAngle > 0 && reps >= (int)targetMaxAngle) {
+    formStatus = "Target Reps Reached!";
+    sessionComplete = true;
+  }
+}
+
+// 5. Wrist Circumduction
+void processWristCircle() {
+  if (sessionComplete) return;
+  int currentLoopCount = (int)(fabs(circleLiveAngle) / 360.0f);
+  if (currentLoopCount > lastLoopCount) {
+    reps += (currentLoopCount - lastLoopCount);
+    lastLoopCount = currentLoopCount;
+    formStatus = "Loop Complete! Keep Circling...";
+  } else {
+    formStatus = "Circling...";
+  }
+  float gyroMag = sqrt(lastGyro.x * lastGyro.x + lastGyro.y * lastGyro.y + lastGyro.z * lastGyro.z);
+  if (gyroMag > 0.3f) {
+    float axisAlignment = fabs(dotProduct(normalize(lastGyro), u));
+    if (axisAlignment > WRIST_CHEAT_ALIGNMENT) formStatus = "Bad Form: Rotate Hand Only!";
+  }
+  if (targetMaxAngle > 0 && reps >= (int)targetMaxAngle) {
+    formStatus = "Target Reps Reached!";
+    sessionComplete = true;
+  }
+}
+
+// 6. Shoulder Overhead Press
+void processShoulderPress() {
+  float safeTarget = min(targetMaxAngle, 175.0f);
+  float THRESHOLD_UP = safeTarget - 15.0f;
+  float THRESHOLD_DOWN = 25.0f;
+  if (THRESHOLD_DOWN >= THRESHOLD_UP) THRESHOLD_DOWN = THRESHOLD_UP - 10.0f;
+
+  if (liveAngle > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Lockout at Top!"; }
+  else if (liveAngle < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Good Press! Ready"; }
+  else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) formStatus = isRaised ? "Lowering to Shoulders..." : "Pressing Overhead...";
+}
+
+// 7. Elbow / Triceps Extension
+void processElbowExtension() {
+  float safeTarget = min(targetMaxAngle, 170.0f);
+  float THRESHOLD_UP = safeTarget - 15.0f;
+  float THRESHOLD_DOWN = 20.0f;
+
+  if (liveAngle > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Full Extension! Hold"; }
+  else if (liveAngle < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Rep Complete! Ready"; }
+  else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) formStatus = isRaised ? "Bending Arm..." : "Extending Elbow...";
+}
+
+// 8. Knee Flexion / Extension
+void processKneeFlexion() {
+  float safeTarget = min(targetMaxAngle, 140.0f);
+  float THRESHOLD_UP = safeTarget - 15.0f;
+  float THRESHOLD_DOWN = 20.0f;
+
+  if (liveAngle > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Peak Flexion!"; }
+  else if (liveAngle < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Full Extension! Ready"; }
+  else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) formStatus = isRaised ? "Straightening Leg..." : "Bending Knee...";
+}
+
+// 9. Cervical / Neck Rotation
+void processNeckRotation() {
+  float safeTarget = min(targetMaxAngle, 85.0f);
+  float THRESHOLD_UP = safeTarget - 10.0f;
+  float THRESHOLD_DOWN = 10.0f;
+
+  if (fabs(liveAngle) > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Hold Neck Stretch..."; }
+  else if (fabs(liveAngle) < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Center Position. Ready"; }
+  else if (fabs(liveAngle) > THRESHOLD_DOWN && fabs(liveAngle) < THRESHOLD_UP) formStatus = isRaised ? "Returning to Center..." : "Rotating Neck...";
+}
+
+// 10. Wrist Flexion / Extension
+void processWristFlexion() {
+  float safeTarget = min(targetMaxAngle, 75.0f);
+  float THRESHOLD_UP = safeTarget - 10.0f;
+  float THRESHOLD_DOWN = 10.0f;
+
+  if (fabs(liveAngle) > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Hold Wrist Flexion..."; }
+  else if (fabs(liveAngle) < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Rep Complete! Ready"; }
+  else if (fabs(liveAngle) > THRESHOLD_DOWN && fabs(liveAngle) < THRESHOLD_UP) formStatus = isRaised ? "Releasing Flexion..." : "Flexing Wrist...";
+}
+
+// ─── Route to Active Exercise ──────────────────────────────────────────────
+void routeActiveExercise() {
+  if (currentExercise == "Bicep Curl") processBicepCurl();
+  else if (currentExercise == "Front Shoulder Raise" || currentExercise == "Front Raise") processFrontRaise();
+  else if (currentExercise == "Side Shoulder Raise" || currentExercise == "Side Raise") processSideRaise();
+  else if (currentExercise == "Hand Circular Movement" || currentExercise == "Hand Circle") processHandCircle();
+  else if (currentExercise == "Wrist Circumduction" || currentExercise == "Wrist Circle") processWristCircle();
+  else if (currentExercise == "Shoulder Overhead Press" || currentExercise == "Shoulder Press") processShoulderPress();
+  else if (currentExercise == "Elbow / Triceps Extension" || currentExercise == "Triceps Extension") processElbowExtension();
+  else if (currentExercise == "Knee Flexion / Extension" || currentExercise == "Knee Flexion") processKneeFlexion();
+  else if (currentExercise == "Cervical / Neck Rotation" || currentExercise == "Neck Rotation") processNeckRotation();
+  else if (currentExercise == "Wrist Flexion / Extension" || currentExercise == "Wrist Flexion") processWristFlexion();
+  else processBicepCurl(); // default
+}
+
+// ─── BLE & Command Handlers ────────────────────────────────────────────────
+void processCommand(const String& cmd) {
+  if (cmd.startsWith("EX:")) {
+    currentExercise = cmd.substring(3);
+    reps = 0;
+    isRaised = false;
+    sessionComplete = false;
+    formStatus = "Selected: " + currentExercise;
+    if (calibState >= 2) calibState = 4;
+    Serial.printf("[CMD] Set exercise: %s\n", currentExercise.c_str());
+  }
+  else if (cmd == "CAL1") {
+    beginCollection(1);
+    Serial.println("[CMD] Triggered Step 1 (Resting)");
+  }
+  else if (cmd == "CAL2") {
+    beginCollection(2);
+    Serial.println("[CMD] Triggered Step 2 (Direction)");
+  }
+  else if (cmd.startsWith("BASE:")) {
+    String pin = cmd.substring(5);
+    if (pin == DOCTOR_PIN) {
+      calibState = 3;
+      sampleIndex = 0;
+      baseline_started = false;
+      baselineStartTime = millis();
+      angleResetPending = true;
+      formStatus = "Doctor Baseline: Waiting for motion...";
+      Serial.println("[CMD] Doctor Baseline Triggered");
+    } else {
+      formStatus = "Error: Invalid Doctor PIN";
+    }
+  }
+  else if (cmd.startsWith("TGT:")) {
+    int firstColon = cmd.indexOf(':');
+    int secondColon = cmd.indexOf(':', firstColon + 1);
+    if (secondColon > 0) {
+      String pin = cmd.substring(firstColon + 1, secondColon);
+      int targetVal = cmd.substring(secondColon + 1).toInt();
+      if (pin == DOCTOR_PIN && targetVal > 0) {
+        targetMaxAngle = (float)targetVal;
+        targetIsDoctorConfirmed = true;
+        prefs.putFloat(maxKey.c_str(), targetMaxAngle);
+        formStatus = "Target Set: " + String(targetVal) + " reps/deg";
+        Serial.printf("[CMD] Target set to %d\n", targetVal);
+      }
+    }
+  }
+  else if (cmd == "END") {
+    sessionComplete = true;
+    formStatus = "Session Complete! Reps: " + String(reps);
+    Serial.printf("[CMD] Session Ended. Total Reps: %d\n", reps);
+  }
+  else if (cmd == "calibrate") {
+    float ox, oy, oz;
+    mpu.calibrateGyro(ox, oy, oz);
+    formStatus = "Gyro Calibrated";
+  }
+}
+
+// ─── Build Cheat Sheet Telemetry JSON ──────────────────────────────────────
+String buildTelemetryJSON() {
+  bool isCircular = (currentExercise == "Hand Circular Movement" || currentExercise == "Wrist Circumduction");
+  float displayAngle = isCircular ? fmod(fabs(circleLiveAngle), 360.0f) : fabs(liveAngle);
+
+  StaticJsonDocument<256> doc;
+  doc["r"]   = reps;
+  doc["a"]   = serialized(String(displayAngle, 1));
+  doc["tw"]  = serialized(String(fabs(twistError), 1));
+  doc["st"]  = calibState;
+  doc["msg"] = formStatus;
+
+  String out;
+  serializeJson(doc, out);
+  return out;
+}
 
 // ─── BLE Callbacks ─────────────────────────────────────────────────────────
+class CommandCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pCharacteristic) {
+    String rxValue = pCharacteristic->getValue().c_str();
+    rxValue.trim();
+    if (rxValue.length() > 0) {
+      Serial.printf("[BLE CMD RX] %s\n", rxValue.c_str());
+      processCommand(rxValue);
+    }
+  }
+};
+
 class BLEServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     bleDeviceConnected = true;
@@ -125,352 +524,216 @@ class BLEServerCallbacks : public BLEServerCallbacks {
   }
   void onDisconnect(BLEServer* pServer) {
     bleDeviceConnected = false;
-    Serial.println("[BLE] Device disconnected, restarting advertising");
+    Serial.println("[BLE] Device disconnected, advertising...");
     pServer->startAdvertising();
     digitalWrite(STATUS_LED, LOW);
   }
 };
 
-// ─── Helper: Build JSON payload ────────────────────────────────────────────
-String buildSensorJSON(bool pretty = false) {
-  StaticJsonDocument<256> doc;
-  doc["t"]  = sensorState.timestamp;
-  doc["ax"] = serialized(String(sensorState.accelX, 4));
-  doc["ay"] = serialized(String(sensorState.accelY, 4));
-  doc["az"] = serialized(String(sensorState.accelZ, 4));
-  doc["gx"] = serialized(String(sensorState.gyroX - sensorState.gyroOffX, 4));
-  doc["gy"] = serialized(String(sensorState.gyroY - sensorState.gyroOffY, 4));
-  doc["gz"] = serialized(String(sensorState.gyroZ - sensorState.gyroOffZ, 4));
-  doc["tp"] = serialized(String(sensorState.temperature, 2));
-  doc["cal"] = sensorState.calibrated;
-  
-  String out;
-  if (pretty) serializeJsonPretty(doc, out);
-  else        serializeJson(doc, out);
-  return out;
-}
-
-// ─── HTTP Routes ───────────────────────────────────────────────────────────
-void setupHTTPRoutes() {
-  // Serve the bundled web app directly from memory (no LittleFS required!)
-  httpServer.on("/", HTTP_GET, []() {
-    httpServer.send_P(200, "text/html", webapp_html);
-  });
-  httpServer.on("/index.html", HTTP_GET, []() {
-    httpServer.send_P(200, "text/html", webapp_html);
-  });
-
-  // REST API: Get latest sensor reading as JSON
-  httpServer.on("/api/sensor", HTTP_GET, []() {
-    httpServer.sendHeader("Access-Control-Allow-Origin", "*");
-    httpServer.send(200, "application/json", buildSensorJSON(true));
-  });
-
-  // REST API: Get device info
-  httpServer.on("/api/info", HTTP_GET, []() {
-    StaticJsonDocument<256> doc;
-    doc["device"] = "PhysioPulse";
-    doc["version"] = "1.0.0";
-    doc["sensor"] = "MPU-6050";
-    doc["i2c_addr"] = MPU_ADDR;
-    doc["mac"] = WiFi.macAddress();
-    doc["ap_ip"] = WiFi.softAPIP().toString();
-    if (strlen(STA_SSID) > 0) doc["sta_ip"] = WiFi.localIP().toString();
-    doc["ws_port"] = WS_PORT;
-    doc["uptime_s"] = millis() / 1000;
-    doc["free_heap"] = ESP.getFreeHeap();
-    String out;
-    serializeJsonPretty(doc, out);
-    httpServer.sendHeader("Access-Control-Allow-Origin", "*");
-    httpServer.send(200, "application/json", out);
-  });
-
-  // REST API: Trigger gyro calibration
-  httpServer.on("/api/calibrate", HTTP_POST, []() {
-    mpu.calibrateGyro(sensorState.gyroOffX, sensorState.gyroOffY, sensorState.gyroOffZ);
-    sensorState.calibrated = true;
-    httpServer.sendHeader("Access-Control-Allow-Origin", "*");
-    httpServer.send(200, "application/json", "{\"status\":\"calibrated\"}");
-  });
-
-  // Handle 404
-  httpServer.onNotFound([]() {
-    httpServer.send(404, "text/plain", "Not found: " + httpServer.uri());
-  });
-}
-
-// ─── WebSocket Event Handler ───────────────────────────────────────────────
-void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t* payload, size_t length) {
-  switch (type) {
-    case WStype_CONNECTED: {
-      IPAddress ip = wsServer.remoteIP(clientNum);
-      Serial.printf("[WS] Client #%d connected from %s\n", clientNum, ip.toString().c_str());
-      wsClientCount++;
-      // Send welcome message with device info
-      StaticJsonDocument<128> welcome;
-      welcome["type"]   = "welcome";
-      welcome["device"] = "PhysioPulse";
-      welcome["rate_hz"] = 1000 / SENSOR_INTERVAL_MS;
-      String msg;
-      serializeJson(welcome, msg);
-      wsServer.sendTXT(clientNum, msg);
-      break;
-    }
-    case WStype_DISCONNECTED:
-      Serial.printf("[WS] Client #%d disconnected\n", clientNum);
-      if (wsClientCount > 0) wsClientCount--;
-      break;
-    case WStype_TEXT: {
-      String msg = String((char*)payload);
-      Serial.printf("[WS] Message from client #%d: %s\n", clientNum, msg.c_str());
-      // Handle commands from app
-      if (msg == "calibrate") {
-        mpu.calibrateGyro(sensorState.gyroOffX, sensorState.gyroOffY, sensorState.gyroOffZ);
-        sensorState.calibrated = true;
-        wsServer.sendTXT(clientNum, "{\"type\":\"calibrated\"}");
-      } else if (msg == "ping") {
-        wsServer.sendTXT(clientNum, "{\"type\":\"pong\"}");
-      }
-      break;
-    }
-    default:
-      break;
-  }
-}
-
-// ─── BLE Setup ────────────────────────────────────────────────────────────
 void setupBLE() {
-  // Create device name from MAC suffix
-  String bleName = "PhysioPulse-" + WiFi.macAddress().substring(12);
-  bleName.replace(":", "");
-
-  BLEDevice::init(bleName.c_str());
+  BLEDevice::init(DEVICE_BLE_NAME);
   pBLEServer = BLEDevice::createServer();
   pBLEServer->setCallbacks(new BLEServerCallbacks());
 
   BLEService *pService = pBLEServer->createService(BLE_SERVICE_UUID);
 
-  // Accelerometer characteristic (notify)
-  pCharAccel = pService->createCharacteristic(
-    BLE_CHAR_ACCEL_UUID,
+  // Telemetry Characteristic (Notify)
+  pCharTelemetry = pService->createCharacteristic(
+    BLE_CHAR_TELEMETRY_UUID,
     BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
   );
-  pCharAccel->addDescriptor(new BLE2902());
+  pCharTelemetry->addDescriptor(new BLE2902());
 
-  // Gyroscope characteristic (notify)
-  pCharGyro = pService->createCharacteristic(
-    BLE_CHAR_GYRO_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  // Command Characteristic (Write)
+  pCharCommand = pService->createCharacteristic(
+    BLE_CHAR_COMMAND_UUID,
+    BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
   );
-  pCharGyro->addDescriptor(new BLE2902());
-
-  // Temperature characteristic (notify)
-  pCharTemp = pService->createCharacteristic(
-    BLE_CHAR_TEMP_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-  );
-  pCharTemp->addDescriptor(new BLE2902());
-
-  // Full JSON characteristic (notify) – for web Bluetooth
-  pCharJSON = pService->createCharacteristic(
-    BLE_CHAR_JSON_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-  );
-  pCharJSON->addDescriptor(new BLE2902());
+  pCharCommand->setCallbacks(new CommandCallbacks());
 
   pService->start();
 
-  // BLE Advertising
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(BLE_SERVICE_UUID);
   pAdvertising->setScanResponse(true);
   pAdvertising->setMinPreferred(0x06);
   BLEDevice::startAdvertising();
 
-  Serial.printf("[BLE] Advertising as: %s\n", bleName.c_str());
+  Serial.printf("[BLE] Advertising as '%s'\n", DEVICE_BLE_NAME);
 }
 
-// ─── Update BLE Characteristics ────────────────────────────────────────────
-void updateBLE() {
-  if (!bleDeviceConnected) return;
-
-  // Pack accel as 3x float (12 bytes)
-  float accelBuf[3] = {
-    sensorState.accelX,
-    sensorState.accelY,
-    sensorState.accelZ
-  };
-  pCharAccel->setValue((uint8_t*)accelBuf, sizeof(accelBuf));
-  pCharAccel->notify();
-
-  // Pack gyro as 3x float (12 bytes)
-  float gyroBuf[3] = {
-    sensorState.gyroX - sensorState.gyroOffX,
-    sensorState.gyroY - sensorState.gyroOffY,
-    sensorState.gyroZ - sensorState.gyroOffZ
-  };
-  pCharGyro->setValue((uint8_t*)gyroBuf, sizeof(gyroBuf));
-  pCharGyro->notify();
-
-  // Temp as float (4 bytes)
-  float temp = sensorState.temperature;
-  pCharTemp->setValue((uint8_t*)&temp, sizeof(temp));
-  pCharTemp->notify();
-
-  // Full JSON string
-  String json = buildSensorJSON(false);
-  pCharJSON->setValue(json.c_str());
-  pCharJSON->notify();
+// ─── WebSockets & HTTP ─────────────────────────────────────────────────────
+void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t* payload, size_t length) {
+  switch (type) {
+    case WStype_CONNECTED: wsClientCount++; break;
+    case WStype_DISCONNECTED: if (wsClientCount > 0) wsClientCount--; break;
+    case WStype_TEXT: {
+      String msg = String((char*)payload);
+      processCommand(msg);
+      break;
+    }
+    default: break;
+  }
 }
 
-// ─── Setup ────────────────────────────────────────────────────────────────
+void setupHTTPRoutes() {
+  httpServer.on("/", HTTP_GET, []() { httpServer.send_P(200, "text/html", webapp_html); });
+  httpServer.on("/index.html", HTTP_GET, []() { httpServer.send_P(200, "text/html", webapp_html); });
+  httpServer.on("/api/telemetry", HTTP_GET, []() {
+    httpServer.sendHeader("Access-Control-Allow-Origin", "*");
+    httpServer.send(200, "application/json", buildTelemetryJSON());
+  });
+  httpServer.on("/api/command", HTTP_POST, []() {
+    if (httpServer.hasArg("plain")) {
+      processCommand(httpServer.arg("plain"));
+      httpServer.sendHeader("Access-Control-Allow-Origin", "*");
+      httpServer.send(200, "application/json", "{\"status\":\"ok\"}");
+    } else {
+      httpServer.send(400, "text/plain", "Missing body");
+    }
+  });
+}
+
+// ─── Arduino Setup ─────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
   delay(500);
-  
-  Serial.println("\n╔══════════════════════════════════╗");
-  Serial.println("║  PhysioPulse Firmware v1.0       ║");
-  Serial.println("║  MYOSA 6.0 – Physiotherapy Hub   ║");
-  Serial.println("╚══════════════════════════════════╝");
 
-  // Status LED
+  Serial.println("\n╔═══════════════════════════════════════════════════╗");
+  Serial.println("║  PhysioTracker 10-Exercise Telemetry Engine       ║");
+  Serial.println("║  BLE GATT Profile + 3D Vector Fusion Core         ║");
+  Serial.println("╚═══════════════════════════════════════════════════╝");
+
   pinMode(STATUS_LED, OUTPUT);
   digitalWrite(STATUS_LED, LOW);
+  prefs.begin("physiopulse", false);
 
-  // ── 1. Initialize I2C & MPU-6050
-  Serial.println("\n[INIT] Starting I2C on SDA=21 SCL=22...");
-  Wire.begin(I2C_SDA, I2C_SCL);
-  
-  // I2C scan
-  Serial.println("[INIT] Scanning I2C bus...");
-  for (byte addr = 1; addr < 127; addr++) {
-    Wire.beginTransmission(addr);
-    if (Wire.endTransmission() == 0) {
-      Serial.printf("[INIT] I2C device found at 0x%02X\n", addr);
-    }
-  }
-  
+  // MPU-6050
   if (!mpu.begin()) {
-    Serial.println("[ERROR] MPU-6050 not found! Check wiring and I2C address.");
-    Serial.println("[ERROR] Expected sensor at I2C address 0x69");
-    // Blink LED rapidly to indicate error
-    while (true) {
-      digitalWrite(STATUS_LED, HIGH); delay(100);
-      digitalWrite(STATUS_LED, LOW);  delay(100);
-    }
-  }
-  Serial.println("[INIT] MPU-6050 initialized ✓");
-  
-  // Initial gyro calibration (sensor must be still)
-  Serial.println("[INIT] Performing gyro calibration (keep sensor still for 2s)...");
-  mpu.calibrateGyro(sensorState.gyroOffX, sensorState.gyroOffY, sensorState.gyroOffZ);
-  sensorState.calibrated = true;
-  Serial.println("[INIT] Gyro calibration done ✓");
-
-  // ── 2. Web App Initialization
-  Serial.println("\n[INIT] Using PROGMEM web app bundle (No LittleFS needed) ✓"); 
-
-  // ── 3. WiFi Setup
-  Serial.println("\n[INIT] Setting up WiFi...");
-  
-  // Generate unique SSID from MAC
-  String mac = WiFi.macAddress();
-  mac.replace(":", "");
-  String apSSID = String(WIFI_AP_SSID_PREFIX) + "-" + mac.substring(8);
-  
-  // Start AP mode
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(apSSID.c_str(), WIFI_AP_PASSWORD, WIFI_CHANNEL, 0, WIFI_MAX_CLIENTS);
-  Serial.printf("[WiFi] AP Started: SSID=%s, IP=%s\n", apSSID.c_str(), WiFi.softAPIP().toString().c_str());
-  
-  // Optional: Connect to existing WiFi
-  if (strlen(STA_SSID) > 0) {
-    Serial.printf("[WiFi] Connecting to %s...\n", STA_SSID);
-    WiFi.begin(STA_SSID, STA_PASS);
-    int tries = 0;
-    while (WiFi.status() != WL_CONNECTED && tries < 20) {
-      delay(500);
-      Serial.print(".");
-      tries++;
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.printf("\n[WiFi] Connected! STA IP: %s\n", WiFi.localIP().toString().c_str());
-    } else {
-      Serial.println("\n[WiFi] STA connection failed, AP-only mode");
-    }
+    MPU6050 mpuAlt(0x68);
+    if (mpuAlt.begin()) mpu = mpuAlt;
   }
 
-  // ── 4. mDNS
-  if (MDNS.begin("physiopulse")) {
-    MDNS.addService("http", "tcp", HTTP_PORT);
-    MDNS.addService("ws",   "tcp", WS_PORT);
-    Serial.println("[mDNS] Started: http://physiopulse.local");
-  }
+  // WiFi AP
+  String apSSID = "PhysioTracker-" + WiFi.macAddress().substring(12);
+  apSSID.replace(":", "");
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(apSSID.c_str(), "physio123", 6, 0, 4);
 
-  // ── 5. HTTP Server
+  // HTTP + WS
   setupHTTPRoutes();
   httpServer.begin();
-  Serial.printf("[HTTP] Server running on port %d\n", HTTP_PORT);
-
-  // ── 6. WebSocket Server
   wsServer.begin();
   wsServer.onEvent(onWebSocketEvent);
-  Serial.printf("[WS] WebSocket server on port %d\n", WS_PORT);
 
-  // ── 7. BLE
+  // BLE
   setupBLE();
 
-  // Ready
   digitalWrite(STATUS_LED, HIGH);
-  Serial.println("\n╔══════════════════════════════════════════════╗");
-  Serial.println("║  PhysioPulse is READY!                       ║");
-  Serial.printf( "║  WiFi SSID: %-32s ║\n", apSSID.c_str());
-  Serial.println("║  Password: physio123                         ║");
-  Serial.println("║  URL: http://192.168.4.1                     ║");
-  Serial.println("║  URL: http://physiopulse.local               ║");
-  Serial.printf( "║  WS:  ws://192.168.4.1:%d/                  ║\n", WS_PORT);
-  Serial.println("╚══════════════════════════════════════════════╝\n");
+  lastFusionMicros = micros();
+  Serial.println("[READY] PhysioTracker is operational!");
 }
 
-// ─── Loop ────────────────────────────────────────────────────────────────
+// ─── Arduino Main Loop ─────────────────────────────────────────────────────
 void loop() {
-  // Handle HTTP requests
   httpServer.handleClient();
-  
-  // Handle WebSocket
   wsServer.loop();
 
-  // Read sensor at defined interval
-  unsigned long now = millis();
-  if (now - lastSensorRead >= SENSOR_INTERVAL_MS) {
-    lastSensorRead = now;
-    
-    MPU6050Data data = mpu.read();
-    if (data.valid) {
-      sensorState.accelX     = data.accelX;
-      sensorState.accelY     = data.accelY;
-      sensorState.accelZ     = data.accelZ;
-      sensorState.gyroX      = data.gyroX;
-      sensorState.gyroY      = data.gyroY;
-      sensorState.gyroZ      = data.gyroZ;
-      sensorState.temperature = data.temperature;
-      sensorState.timestamp  = now;
+  // 1. Read Sensor and update 3D Vector Gravity Fusion
+  MPU6050Data sensorData = mpu.read();
+  if (sensorData.valid) {
+    unsigned long nowMicros = micros();
+    float dt = (nowMicros - lastFusionMicros) / 1e6f;
+    if (dt <= 0 || dt > 0.5f) dt = 0.01f;
+    lastFusionMicros = nowMicros;
 
-      // Broadcast to all WebSocket clients
-      if (wsClientCount > 0) {
-        String json = buildSensorJSON(false);
-        wsServer.broadcastTXT(json);
+    Vec3 accel = {sensorData.accelX * 9.80665f, sensorData.accelY * 9.80665f, sensorData.accelZ * 9.80665f};
+    Vec3 gyro = {sensorData.gyroX * (PI / 180.0f), sensorData.gyroY * (PI / 180.0f), sensorData.gyroZ * (PI / 180.0f)};
+    lastGyro = {sensorData.gyroX, sensorData.gyroY, sensorData.gyroZ};
+    
+    Vec3 fused = updateGravityEstimate(gyro, accel, dt);
+    serviceCollection();
+
+    if (calibState >= 2) {
+      float n_dot = constrain(dotProduct(fused, n), -1.0f, 1.0f);
+      twistError = asin(n_dot) * 180.0f / PI;
+
+      float x = dotProduct(fused, e1);
+      float y = dotProduct(fused, e2);
+      float rawAngle = atan2(y, x) * 180.0f / PI;
+
+      if (angleResetPending) {
+        liveAngle = 0.0f;
+        rawAngleForUnwrap = rawAngle;
+        angleResetPending = false;
+      } else {
+        liveAngle += angleDiff(rawAngleForUnwrap, rawAngle);
+        rawAngleForUnwrap = rawAngle;
       }
 
-      // Update BLE (throttle BLE to every 100ms = 10 Hz to avoid congestion)
-      static unsigned long lastBLE = 0;
-      if (now - lastBLE >= 100) {
-        lastBLE = now;
-        updateBLE();
+      if (liveAngle > 360.0f) liveAngle -= 360.0f;
+      else if (liveAngle < -360.0f) liveAngle += 360.0f;
+
+      float cx = dotProduct(fused, n);
+      float cy = dotProduct(fused, e2);
+      float cRaw = atan2(cy, cx) * 180.0f / PI;
+      circleLiveAngle += angleDiff(circleRawForUnwrap, cRaw);
+      circleRawForUnwrap = cRaw;
+
+      // Phase 2: Doctor Baseline Capture
+      if (calibState == 3) {
+        if (!baseline_started) {
+          if (millis() - baselineStartTime > 5000) {
+            calibState = 2;
+            formStatus = "Error: Timeout";
+          } else {
+            float angularDeviation = acos(constrain(dotProduct(fused, u), -1.0f, 1.0f)) * 180.0f / PI;
+            if (angularDeviation > BASELINE_MOTION_ONSET_DEG) {
+              baseline_started = true;
+              lastSampleMillis = millis();
+              formStatus = "Recording Baseline (15s)...";
+            }
+          }
+        } else if (millis() - lastSampleMillis >= 100) {
+          lastSampleMillis = millis();
+          if (sampleIndex < MAX_SAMPLES) {
+            angleBuffer[sampleIndex] = liveAngle;
+            swayBuffer[sampleIndex] = fabs(twistError);
+            sampleIndex++;
+          }
+          if (sampleIndex >= MAX_SAMPLES) {
+            sortArray(angleBuffer, MAX_SAMPLES);
+            sortArray(swayBuffer, MAX_SAMPLES);
+            int p90_idx = (int)(MAX_SAMPLES * 0.90);
+            targetMaxAngle = angleBuffer[p90_idx];
+            maxDeviationPlane = max(10.0f, swayBuffer[p90_idx]);
+            targetIsDoctorConfirmed = true;
+            prefs.putFloat(maxKey.c_str(), targetMaxAngle);
+            prefs.putFloat(swayKey.c_str(), maxDeviationPlane);
+            calibState = 4;
+            formStatus = "Baseline Saved. Ready!";
+          }
+        }
+      }
+      // Phase 3: Active Rep State Machine
+      else if (calibState == 4) {
+        routeActiveExercise();
       }
     }
   }
-  
-  // mDNS update
-  MDNS.update();
+
+  // 2. Broadcast Telemetry 10 times a second (every 100ms)
+  unsigned long now = millis();
+  if (now - lastTelemetryMillis >= TELEMETRY_INTERVAL_MS) {
+    lastTelemetryMillis = now;
+    String telemetryPacket = buildTelemetryJSON();
+
+    if (bleDeviceConnected && pCharTelemetry != nullptr) {
+      pCharTelemetry->setValue(telemetryPacket.c_str());
+      pCharTelemetry->notify();
+    }
+    if (wsClientCount > 0) {
+      wsServer.broadcastTXT(telemetryPacket);
+    }
+  }
 }

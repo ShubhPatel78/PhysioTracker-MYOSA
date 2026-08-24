@@ -131,7 +131,7 @@ const PatientPortal = (() => {
       _setEl('ptTargetReps', threshold.targetReps + ' reps');
       _setEl('ptExercise', threshold.exerciseType || 'Exercise');
       _setEl('ptMotionLimit', threshold.motionLimit + ' °/s');
-      _setEl('ptTempLimit', threshold.tempLimit + ' °C');
+      
       document.getElementById('ptThreshCard')?.classList.remove('hidden');
       document.getElementById('ptNoThresh')?.classList.add('hidden');
     } else {
@@ -214,15 +214,12 @@ const PatientPortal = (() => {
       _showExerciseAlert('warning', `⚠ Motion too fast! Slow down for safety.`);
     }
 
-    if (temp > (threshold.tempLimit || 40)) {
-      _showExerciseAlert('error', `🌡 High temperature detected: ${temp.toFixed(1)}°C. Take a rest!`);
-    }
+    
 
     // Update live metrics
     _setEl('ptLivePitch', absPitch.toFixed(1) + '°');
     _setEl('ptLiveGyro', gyroMag.toFixed(1) + ' °/s');
-    _setEl('ptLiveTemp', temp.toFixed(1) + ' °C');
-
+    
     if (threshold.targetReps > 0) {
       const pct = Math.min(repCount / threshold.targetReps, 1);
       _updateRepRing(pct);
@@ -463,7 +460,6 @@ const PatientPortal = (() => {
         <div class="history-stats">
           <div class="h-stat"><span class="h-stat-label">Reps</span><span class="h-stat-val">${h.repsCompleted || 0}/${h.targetReps || '?'}</span></div>
           <div class="h-stat"><span class="h-stat-label">Max Angle</span><span class="h-stat-val">${h.maxAngleReached != null ? h.maxAngleReached.toFixed(1) + '°' : '—'}</span></div>
-          <div class="h-stat"><span class="h-stat-label">Avg Temp</span><span class="h-stat-val">${h.avgTemp != null ? h.avgTemp.toFixed(1) + ' °C' : '—'}</span></div>
           <div class="h-stat"><span class="h-stat-label">Status</span><span class="h-stat-val"><span class="status-badge ${h.status}">${h.status}</span></span></div>
         </div>
       </div>

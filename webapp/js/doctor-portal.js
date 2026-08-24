@@ -219,7 +219,7 @@ const DoctorPortal = (() => {
       _setVal('dpMaxAngle', threshold.maxAngle);
       _setVal('dpTargetReps', threshold.targetReps);
       _setVal('dpMotionLimit', threshold.motionLimit || 100);
-      _setVal('dpTempLimit', threshold.tempLimit || 40);
+      
       _setVal('dpExerciseType', threshold.exerciseType || 'Knee Flexion / Extension');
       _setVal('dpVideoUrl', threshold.video_url || threshold.videoUrl || '');
       _setVal('dpNotes', threshold.notes || '');
@@ -230,7 +230,7 @@ const DoctorPortal = (() => {
       _setVal('dpMaxAngle', 120);
       _setVal('dpTargetReps', 10);
       _setVal('dpMotionLimit', 100);
-      _setVal('dpTempLimit', 40);
+      
       _setVal('dpVideoUrl', '');
       _setVal('dpNotes', '');
     }
@@ -270,7 +270,7 @@ const DoctorPortal = (() => {
             <th>Reps</th>
             <th>Max Angle</th>
             <th>Min Angle</th>
-            <th>Avg Temp</th>
+            
             <th>Status</th>
             <th>Duration</th>
           </tr>
@@ -282,7 +282,7 @@ const DoctorPortal = (() => {
               <td>${h.repsCompleted || 0}${threshold ? '/' + threshold.targetReps : ''}</td>
               <td>${h.maxAngleReached != null ? h.maxAngleReached.toFixed(1) + '°' : '—'}</td>
               <td>${h.minAngleReached != null ? h.minAngleReached.toFixed(1) + '°' : '—'}</td>
-              <td>${h.avgTemp != null ? h.avgTemp.toFixed(1) + ' °C' : '—'}</td>
+              
               <td><span class="status-badge ${h.status}">${h.status}</span></td>
               <td>${h.duration_s ? _formatDuration(h.duration_s) : '—'}</td>
             </tr>
@@ -323,7 +323,7 @@ const DoctorPortal = (() => {
     const maxAngle  = parseFloat(document.getElementById('dpMaxAngle')?.value) || 120;
     const targetReps= parseInt(document.getElementById('dpTargetReps')?.value)  || 10;
     const motionLimit= parseFloat(document.getElementById('dpMotionLimit')?.value) || 100;
-    const tempLimit  = parseFloat(document.getElementById('dpTempLimit')?.value)  || 40;
+    const tempLimit = 40;
     const exerciseType = document.getElementById('dpExerciseType')?.value || 'Knee Flexion / Extension';
     const videoUrl   = document.getElementById('dpVideoUrl')?.value.trim() || '';
     const strictLimit= document.getElementById('dpStrictLimit')?.checked ?? true;
@@ -409,6 +409,148 @@ const DoctorPortal = (() => {
   function bindDoctorEvents() {
     document.getElementById('thresholdSaveBtn')?.addEventListener('click', saveThreshold);
     document.getElementById('patientProfileSaveBtn')?.addEventListener('click', savePatientProfile);
+    
+    // Add Patient Modal Openers & Handlers
+    function openAddPatientModal() {
+      const modal = document.getElementById('addPatientModal');
+      const err = document.getElementById('addPatientError');
+      if (modal) modal.classList.remove('hidden');
+      if (err) err.classList.add('hidden');
+      const nameInput = document.getElementById('addPtName');
+      if (nameInput) {
+        nameInput.value = '';
+        setTimeout(() => nameInput.focus(), 100);
+      }
+      const ageInput = document.getElementById('addPtAge');
+      if (ageInput) ageInput.value = '';
+      const condInput = document.getElementById('addPtCondition');
+      if (condInput) condInput.value = '';
+      const pwdInput = document.getElementById('addPtPassword');
+      if (pwdInput) pwdInput.value = 'patient123';
+    }
+
+    function closeAddPatientModal() {
+      const modal = document.getElementById('addPatientModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    document.getElementById('doctorAddPatientBtn')?.addEventListener('click', openAddPatientModal);
+    document.getElementById('doctorAddPatientBtn2')?.addEventListener('click', openAddPatientModal);
+    document.getElementById('closeAddPatientModal')?.addEventListener('click', closeAddPatientModal);
+    document.getElementById('cancelAddPatientModal')?.addEventListener('click', closeAddPatientModal);
+
+    document.getElementById('addPatientForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('addPatientError');
+      const submitBtn = document.getElementById('submitAddPatientBtn');
+      if (errorEl) errorEl.classList.add('hidden');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating...';
+      }
+
+      try {
+        const nameVal = document.getElementById('addPtName')?.value?.trim();
+        const ageVal = parseInt(document.getElementById('addPtAge')?.value) || null;
+        const condVal = document.getElementById('addPtCondition')?.value?.trim() || '';
+        const pwdVal = document.getElementById('addPtPassword')?.value || 'patient123';
+
+        if (!nameVal) throw new Error('Patient name is required');
+
+        const res = await Auth.createPatient({
+          name: nameVal,
+          age: ageVal,
+          condition: condVal,
+          password: pwdVal
+        });
+
+        closeAddPatientModal();
+        const ptCode = res?.patient_code || res?.user?.patient_code || 'PT-XXXX';
+        App.showToast(`Patient created! Login ID: ${ptCode}`, 'success');
+        
+        // Refresh dashboard & patient list
+        await renderDoctorDashboard();
+      } catch (err) {
+        if (errorEl) {
+          errorEl.textContent = err.message || 'Failed to create patient';
+          errorEl.classList.remove('hidden');
+        } else {
+          App.showToast('Error: ' + err.message, 'error');
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '➕ Create Patient & Generate ID';
+        }
+      }
+    });
+
+    // Reset Password Logic
+    document.getElementById('dpResetPasswordBtn')?.addEventListener('click', async () => {
+      if (!currentPatientId) return;
+      const pwInput = document.getElementById('dpResetPasswordInput');
+      const newPassword = pwInput.value.trim();
+      if (newPassword.length < 6) {
+        App.showToast('Password must be at least 6 characters', 'error');
+        return;
+      }
+      try {
+        await Auth.resetPatientPassword(currentPatientId, newPassword);
+        pwInput.value = '';
+        App.showToast('Patient password reset successfully', 'success');
+      } catch(err) {
+        App.showToast('Error resetting password: ' + err.message, 'error');
+      }
+    });
+
+    // Calibration & Demo Sensing Logic
+    const demoBtn = document.getElementById('calibDemoBtn');
+    demoBtn?.addEventListener('click', () => {
+      if (App.isDemo && App.isDemo()) {
+        App.stopDemo();
+        demoBtn.textContent = '⚡ Demo Motion';
+        demoBtn.style.background = 'rgba(124,58,237,0.2)';
+        App.showToast('Demo motion stopped');
+      } else {
+        App.startDemo();
+        demoBtn.textContent = '⏹ Stop Demo';
+        demoBtn.style.background = 'rgba(239,68,68,0.25)';
+        App.showToast('Demo motion active! Move or click Capture buttons.', 'success');
+      }
+    });
+
+    document.getElementById('calibMinBtn')?.addEventListener('click', () => {
+      let data = App.getLatestData();
+      if (!data || (data.pitch === 0 && !App.isDemo())) {
+        // Auto-start demo if no live stream is active
+        App.startDemo();
+        data = App.getLatestData();
+        App.showToast('Simulated sensor started. Capturing min angle...', 'info');
+      }
+      const angle = Math.abs(data?.pitch || (Math.random() * 20 + 15));
+      document.getElementById('dpMinAngle').value = Math.round(angle);
+      App.showToast(`Min angle captured: ${Math.round(angle)}°`, 'success');
+    });
+
+    document.getElementById('calibMaxBtn')?.addEventListener('click', () => {
+      let data = App.getLatestData();
+      if (!data || (data.pitch === 0 && !App.isDemo())) {
+        App.startDemo();
+        data = App.getLatestData();
+        App.showToast('Simulated sensor started. Capturing max angle...', 'info');
+      }
+      const angle = Math.abs(data?.pitch ? (Math.abs(data.pitch) + 60) : (Math.random() * 30 + 85));
+      const clamped = Math.min(175, Math.max(45, Math.round(angle)));
+      document.getElementById('dpMaxAngle').value = clamped;
+      App.showToast(`Max angle captured: ${clamped}°`, 'success');
+    });
+
+    document.getElementById('calibClearBtn')?.addEventListener('click', () => {
+      document.getElementById('dpMinAngle').value = '30';
+      document.getElementById('dpMaxAngle').value = '120';
+      App.showToast('Calibration reset to defaults (30° – 120°)');
+    });
+
     document.getElementById('backToPatients')?.addEventListener('click', () => {
       App.navigateTo('doctor-patients');
     });

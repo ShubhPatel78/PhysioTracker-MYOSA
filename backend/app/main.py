@@ -20,6 +20,12 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE thresholds ADD COLUMN video_url VARCHAR(500) DEFAULT ''"))
             if "strict_limit" not in col_names:
                 conn.execute(text("ALTER TABLE thresholds ADD COLUMN strict_limit BOOLEAN DEFAULT 1"))
+            res_users = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+            user_cols = [r[1] for r in res_users]
+            if "patient_code" not in user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN patient_code VARCHAR(50) DEFAULT NULL"))
+                conn.execute(text("CREATE UNIQUE INDEX ix_users_patient_code ON users (patient_code)"))
+
             conn.commit()
         except Exception as e:
             print("[Migration] Note:", e)

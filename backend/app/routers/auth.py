@@ -13,6 +13,12 @@ def generate_doctor_code(user_id: int) -> str:
 
 @router.post("/register", response_model=AuthResponse)
 def register(user_data: UserRegister, db: Session = Depends(get_db)):
+    # Public self-registration is closed. Doctor accounts are issued directly by the organization.
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Public registration is closed. Doctor accounts are issued directly by the company, and patients are created by their assigned doctor."
+    )
+
     email_clean = user_data.email.lower().strip()
     existing = db.query(User).filter(User.email == email_clean).first()
     if existing:
@@ -80,12 +86,16 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=AuthResponse)
 def login(login_data: UserLogin, db: Session = Depends(get_db)):
-    email_clean = login_data.email.lower().strip()
-    user = db.query(User).filter(User.email == email_clean).first()
+    login_id = login_data.email.strip()
+    if login_id.upper().startswith("PT-"):
+        user = db.query(User).filter(User.patient_code == login_id.upper()).first()
+    else:
+        user = db.query(User).filter(User.email == login_id.lower()).first()
+        
     if not user or not verify_password(login_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Incorrect User ID/Email or password",
         )
 
     patient_id = None

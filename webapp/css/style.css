@@ -847,29 +847,50 @@ body::before {
 .h-stat-val { font-size: 0.82rem; font-weight: 600; font-family: var(--font-mono); }
 .history-actions { display: flex; gap: 0.5rem; }
 
-/* ─── Modal ─── */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.7);
-  z-index: 1000;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 1.5rem;
-  overflow-y: auto;
-  backdrop-filter: blur(4px);
-}
+/* ─── Modal Overlay & Cards ─── */
+.modal-overlay,
 .modal {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  width: 100%;
-  max-width: 800px;
-  box-shadow: var(--shadow-modal);
-  animation: modalIn 0.3s ease;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: rgba(5, 8, 16, 0.82) !important;
+  z-index: 99999 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 1.5rem !important;
+  overflow-y: auto !important;
+  backdrop-filter: blur(8px) !important;
+  box-sizing: border-box !important;
 }
-@keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(20px); } to { opacity: 1; transform: none; } }
+
+.modal.hidden,
+.modal-overlay.hidden {
+  display: none !important;
+}
+
+.modal-card,
+.modal-content {
+  background: #151b2e !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 20px !important;
+  width: 100% !important;
+  max-width: 520px !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+  animation: modalIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  position: relative !important;
+  overflow: hidden !important;
+  margin: auto !important;
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.95) translateY(16px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
 .modal-header {
   display: flex;
   align-items: center;
