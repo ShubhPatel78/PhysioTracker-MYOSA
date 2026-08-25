@@ -175,9 +175,10 @@ const PatientPortal = (() => {
     const temp = data.tp || 0;
 
 
-    // ── Phase 1: Resting Position Calibration (30-second window) ──────────────
+    // ── Phase 1: Resting Position Calibration (3-second window) ──────────────
     if (isCalibrating) {
       calibSamples.push(absPitch);
+      sessionAngles.push(absPitch); // guarantee sessionAngles is never empty
 
       const elapsed   = Date.now() - calibStartTime;
       const remaining = Math.max(0, Math.ceil((CALIB_DURATION_MS - elapsed) / 1000));
@@ -187,136 +188,64 @@ const PatientPortal = (() => {
         `📐 Hold RESTING position... Calibrating — ${remaining}s remaining (${calibSamples.length} samples)`);
 
       if (elapsed >= CALIB_DURATION_MS) {
-        // 30 seconds done — compute mean baseline
+        // 3 seconds done — compute mean baseline
         const sum = calibSamples.reduce((a, b) => a + b, 0);
-        restingBaseline = sum / calibSamples.length;
+        restingBaseline = calibSamples.length > 0 ? (sum / calibSamples.length) : 0;
         isCalibrating   = false;
 
         _showExerciseAlert('success',
           `✅ Resting baseline set: ${restingBaseline.toFixed(1)}° — Begin your ${threshold.exerciseType || 'exercise'}!`);
         App.showToast(
-          `✅ Baseline locked at ${restingBaseline.toFixed(1)}° (${calibSamples.length} samples). Start exercising!`,
+          `✅ Baseline locked at ${restingBaseline.toFixed(1)}°. Start curling!`,
           'success'
         );
       }
 
-      // Show live angle during calibration but don't count reps yet
+      // Show live angle during calibration
       _setEl('ptLivePitch', absPitch.toFixed(1) + '°');
       return;
     }
 
-    // ── Phase 2: Active Rep Counting — mirrors firmware processBicepCurl() exactly ──
-    // liveAngle = signed movement away from resting baseline
-    // positive = curling toward body, negative = hyperextension past rest
-    const liveAngle    = absPitch - (restingBaseline || 0);
-    const movementAngle = Math.abs(liveAngle); // for display & max-limit check
+    // ── Phase 2: Active Rep Counting ──
+    const liveAngle = absPitch - (restingBaseline !== null ? restingBaseline : 0);
+    const movementAngle = Math.abs(liveAngle); // movement distance from rest
 
     sessionAngles.push(movementAngle);
     sessionTemps.push(temp);
 
-    // ── Firmware thresholds (exact match) ──
-    const safeTarget    = Math.min(threshold.maxAngle || 110, 175);
-    const THRESHOLD_UP  = safeTarget - 15;
-    let   THRESHOLD_DOWN = 20.0;
-    if (THRESHOLD_DOWN >= THRESHOLD_UP) THRESHOLD_DOWN = THRESHOLD_UP - 10;
-    const HYPEREXTEND_LIMIT  = Math.min(-15, THRESHOLD_DOWN - 20);
-    const MAX_SWAY_TOLERANCE = (threshold.maxDeviationPlane || 30) + 5;
-
-    // twistError approximation: lateral gyro component (gz) scaled
-    const twistError = Math.abs(data.gz || 0) * 0.5;
-
-    // ── DIAGNOSTIC (remove once reps work) ──
-    if (!window._repDbgTick) window._repDbgTick = 0;
-    if (++window._repDbgTick % 40 === 0) {  // log every ~2 seconds
-      console.log('[REP DBG]', {
-        absPitch:        absPitch.toFixed(1),
-        restingBaseline: restingBaseline?.toFixed(1),
-        liveAngle:       liveAngle.toFixed(1),
-        movementAngle:   movementAngle.toFixed(1),
-        THRESHOLD_UP,
-        THRESHOLD_DOWN,
-        wasAboveMin,
-        twistError:      twistError.toFixed(1),
-        MAX_SWAY_TOLERANCE,
-        repCount,
-        sessionActive,
-        isCalibrating,
-      });
-    }
-
-    const maxLimitAlert = document.getElementById('ptMaxLimitAlert');
-    const maxLimitText  = document.getElementById('ptMaxLimitText');
-
-    // ── Doctor max-angle safety (web-only guard, firmware has its own) ──
-    if (movementAngle > threshold.maxAngle) {
-      maxLimitExceeded = true;
-      if (maxLimitAlert) {
-        maxLimitAlert.classList.remove('hidden');
-        if (maxLimitText)
-          maxLimitText.textContent =
-            `⛔ DOCTOR LIMIT: Movement (${movementAngle.toFixed(1)}°) exceeds maximum (${threshold.maxAngle}°)! Stop.`;
-      }
-    } else {
-      maxLimitExceeded = false;
-      if (maxLimitAlert && repCount < threshold.targetReps) maxLimitAlert.classList.add('hidden');
-    }
-
-    // ── Rep counting ──
-    // If hardware already counted reps, trust firmware directly
+    // ── Hardware Rep Sync (if ESP32 sends reps directly) ──
     const hwReps = (data.reps !== undefined && data.reps !== null) ? parseInt(data.reps) : -1;
-    if (hwReps > 0) {
-      if (hwReps > repCount) {
-        repCount = hwReps;
+    if (hwReps > 0 && hwReps > repCount) {
+      repCount = hwReps;
+      _setEl('ptRepCount', repCount);
+      _setEl('ptRepCountBig', repCount);
+    } else {
+      // ── Software Dynamic Rep Counter ──
+      // Dynamic thresholds: UP at 60% of prescribed max (or min 30°), DOWN at 25% of max (or 20°)
+      const maxA = threshold.maxAngle || 88;
+      const upThresh   = Math.max(30, Math.min(maxA - 10, maxA * 0.60));
+      const downThresh = Math.max(10, Math.min(25, maxA * 0.25));
+
+      if (!wasAboveMin && movementAngle >= upThresh) {
+        wasAboveMin = true;
+        _setEl('ptLiveMsg', 'Hold Peak Curl...');
+      } else if (wasAboveMin && movementAngle <= downThresh) {
+        wasAboveMin = false;
+        repCount++;
+        repTimestamps.push(Date.now());
         _setEl('ptRepCount', repCount);
         _setEl('ptRepCountBig', repCount);
+        _setEl('ptLiveMsg', 'Rep Complete! Ready');
+      } else if (movementAngle > downThresh && movementAngle < upThresh) {
+        _setEl('ptLiveMsg', wasAboveMin ? 'Lowering...' : 'Curling Up...');
       }
-    } else {
-      // ── Exact firmware rep counting logic ──
-      // NOTE: movementAngle = |absPitch - restingBaseline| — always positive,
-      // orientation-agnostic (works regardless of which way sensor is mounted).
-      // liveAngle (signed) is only used for the hyperextension check.
-      let formStatus = '';
-
-      if (twistError > MAX_SWAY_TOLERANCE) {
-        formStatus = 'Bad Form: Keep Movement Aligned!';
-        _showExerciseAlert('warning', `⚠ ${formStatus}`);
-
-      } else if (liveAngle < HYPEREXTEND_LIMIT) {
-        formStatus = 'Bad Form: Arm Dropped';
-        _showExerciseAlert('warning', `⚠ ${formStatus}`);
-
-      } else {
-        // Use movementAngle (absolute) to match firmware's positive liveAngle convention
-        if (movementAngle > THRESHOLD_UP && !wasAboveMin) {
-          wasAboveMin = true;
-          formStatus  = 'Hold Peak Curl...';
-
-        } else if (movementAngle < THRESHOLD_DOWN && wasAboveMin) {
-          wasAboveMin = false;
-          repCount++;
-          repTimestamps.push(Date.now());
-          formStatus = 'Rep Complete! Ready';
-          _setEl('ptRepCount', repCount);
-          _setEl('ptRepCountBig', repCount);
-
-        } else if (movementAngle > THRESHOLD_DOWN && movementAngle < THRESHOLD_UP) {
-          formStatus = wasAboveMin ? 'Lowering...' : 'Curling Up...';
-        }
-      }
-
-      // Show form status in the live message element
-      if (formStatus) _setEl('ptLiveMsg', formStatus);
     }
 
     // ── Target Complete ──
     if (repCount >= threshold.targetReps && !alertFired) {
       alertFired = true;
-      _showExerciseAlert('success', `🎉 Target reached! ${repCount}/${threshold.targetReps} reps. Stop and save!`);
+      _showExerciseAlert('success', `🎉 Target reached! ${repCount}/${threshold.targetReps} reps. Great job!`);
       App.showToast(`🎉 ${threshold.targetReps} reps completed!`, 'success');
-      if (maxLimitAlert) {
-        maxLimitAlert.classList.remove('hidden');
-        if (maxLimitText) maxLimitText.textContent = `✓ Target Complete (${threshold.targetReps} reps). Please stop and save!`;
-      }
     }
 
     // Live display
@@ -326,6 +255,7 @@ const PatientPortal = (() => {
     if (threshold.targetReps > 0) {
       _updateRepRing(Math.min(repCount / threshold.targetReps, 1));
     }
+
   }
 
 
