@@ -33,6 +33,24 @@ const API = (() => {
     return DEFAULT_BACKEND_URL;
   }
 
+  function formatDateLocal(dateStr) {
+    if (!dateStr) return '—';
+    try {
+      // If dateStr is an ISO string without trailing Z or offset, append Z so it parses as UTC
+      let s = String(dateStr).trim();
+      if (!s.endsWith('Z') && !s.includes('+') && !s.includes('-') && s.includes('T')) {
+        s += 'Z';
+      } else if (s.includes(' ') && !s.includes('+')) {
+        s = s.replace(' ', 'T') + 'Z';
+      }
+      const d = new Date(s);
+      if (isNaN(d.getTime())) return new Date(dateStr).toLocaleString();
+      return d.toLocaleString();
+    } catch (e) {
+      return new Date(dateStr).toLocaleString();
+    }
+  }
+
   const TOKEN_KEY = 'pp_jwt_token';
 
   function getToken() {
@@ -271,6 +289,7 @@ const API = (() => {
     getToken,
     setToken,
     getBaseUrl,
+    formatDateLocal,
     // Auth
     register,
     login,

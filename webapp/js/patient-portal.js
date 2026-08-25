@@ -450,7 +450,7 @@ const PatientPortal = (() => {
       <div class="history-item">
         <div class="history-meta">
           <span class="history-patient">${h.exerciseType || 'Exercise'}</span>
-          <span class="history-detail">${new Date(h.date).toLocaleString()} · Duration: ${h.duration_s ? _formatDuration(h.duration_s) : '—'}</span>
+          <span class="history-detail">${typeof API !== 'undefined' && API.formatDateLocal ? API.formatDateLocal(h.date) : new Date(h.date).toLocaleString()} · Duration: ${h.duration_s ? _formatDuration(h.duration_s) : '—'}</span>
         </div>
         <div class="history-stats">
           <div class="h-stat"><span class="h-stat-label">Reps</span><span class="h-stat-val">${h.repsCompleted || 0}/${h.targetReps || '?'}</span></div>

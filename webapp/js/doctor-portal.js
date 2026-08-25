@@ -90,7 +90,7 @@ const DoctorPortal = (() => {
           <div class="pain-alert-header">
             <span class="pain-alert-patient">🚨 ${a.patient_name || 'Patient'}</span>
             <span class="pain-severity-pill ${a.pain_level || 'Moderate'}">${a.pain_level || 'Moderate'}</span>
-            <span style="font-size:0.75rem;color:rgba(255,255,255,0.4)">${new Date(a.date).toLocaleString()}</span>
+            <span style="font-size:0.75rem;color:rgba(255,255,255,0.4)">${typeof API !== 'undefined' && API.formatDateLocal ? API.formatDateLocal(a.date) : new Date(a.date).toLocaleString()}</span>
           </div>
           <div class="pain-alert-meta">
             Felt at <strong>${a.angle_at_pain != null ? a.angle_at_pain.toFixed(1) + '°' : '—'}</strong> joint angle (Rep <strong>${a.reps_at_pain || 0}</strong>)
@@ -294,7 +294,7 @@ const DoctorPortal = (() => {
         <tbody>
           ${history.map(h => `
             <tr>
-              <td>${new Date(h.date).toLocaleString()}</td>
+              <td>${typeof API !== 'undefined' && API.formatDateLocal ? API.formatDateLocal(h.date) : new Date(h.date).toLocaleString()}</td>
               <td>${h.repsCompleted || 0}${threshold ? '/' + threshold.targetReps : ''}</td>
               <td>${h.maxAngleReached != null ? h.maxAngleReached.toFixed(1) + '°' : '—'}</td>
               <td>${h.minAngleReached != null ? h.minAngleReached.toFixed(1) + '°' : '—'}</td>
@@ -319,7 +319,7 @@ const DoctorPortal = (() => {
 
     el.innerHTML = history.map((t, i) => `
       <div class="thresh-history-item ${i === 0 ? 'current' : ''}">
-        <div class="thi-date">${new Date(t.updatedAt || t.created_at).toLocaleString()} ${i === 0 ? '<span class="current-badge">Current</span>' : ''}</div>
+        <div class="thi-date">${typeof API !== 'undefined' && API.formatDateLocal ? API.formatDateLocal(t.updatedAt || t.created_at) : new Date(t.updatedAt || t.created_at).toLocaleString()} ${i === 0 ? '<span class="current-badge">Current</span>' : ''}</div>
         <div class="thi-values">
           Min: ${t.minAngle || t.min_angle}° · Max: ${t.maxAngle || t.max_angle}° · Reps: ${t.targetReps || t.target_reps} · Motion: ${t.motionLimit || t.motion_limit || 100}°/s
         </div>
