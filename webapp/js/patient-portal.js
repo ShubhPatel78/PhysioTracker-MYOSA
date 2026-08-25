@@ -559,28 +559,6 @@ const PatientPortal = (() => {
     document.getElementById('ptRefreshThreshold')?.addEventListener('click', () => {
       refreshThreshold().then(() => App.showToast('Thresholds & Video refreshed from doctor', 'info'));
     });
-
-    // Manual rep adjustments
-    document.getElementById('ptManualRepInc')?.addEventListener('click', () => {
-      repCount++;
-      sessionAngles.push(threshold?.maxAngle || 88);
-      _setEl('ptRepCount', repCount);
-      _setEl('ptRepCountBig', repCount);
-      if (threshold?.targetReps > 0) {
-        _updateRepRing(Math.min(repCount / threshold.targetReps, 1));
-      }
-    });
-
-    document.getElementById('ptManualRepDec')?.addEventListener('click', () => {
-      if (repCount > 0) {
-        repCount--;
-        _setEl('ptRepCount', repCount);
-        _setEl('ptRepCountBig', repCount);
-        if (threshold?.targetReps > 0) {
-          _updateRepRing(Math.min(repCount / threshold.targetReps, 1));
-        }
-      }
-    });
   }
 
   function _setEl(id, val) {
