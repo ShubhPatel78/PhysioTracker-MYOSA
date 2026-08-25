@@ -9,6 +9,7 @@
 
 const DoctorPortal = (() => {
   let session = null; // current doctor session
+  let currentActivePatientId = null; // active patient ID for threshold & profile forms
 
   // ─── Init ─────────────────────────────────────────────────────────────────
   async function init(doctorSession) {
@@ -16,6 +17,7 @@ const DoctorPortal = (() => {
     await renderDoctorDashboard();
     bindDoctorEvents();
   }
+
 
   // ─── Doctor Dashboard ─────────────────────────────────────────────────────
   async function renderDoctorDashboard() {
@@ -194,7 +196,9 @@ const DoctorPortal = (() => {
 
   // ─── Patient Detail / Threshold Form ─────────────────────────────────────
   async function openPatientDetail(patientId) {
+    currentActivePatientId = patientId;
     const patient   = await Auth.getPatientById(patientId);
+
     const threshold = await Auth.getThresholdForPatient(patientId);
     const history   = await Auth.getExerciseHistoryForPatient(patientId);
     const thresholdHistory = await Auth.getThresholdHistoryForPatient(patientId);
@@ -316,21 +320,25 @@ const DoctorPortal = (() => {
   // ─── Save Threshold ────────────────────────────────────────────────────────
   async function saveThreshold() {
     const form = document.getElementById('thresholdForm');
-    if (!form) return;
-    const patientId = parseInt(form.dataset.patientId);
+    const patientId = currentActivePatientId || (form && form.dataset.patientId ? parseInt(form.dataset.patientId) : null);
+
+    if (!patientId || isNaN(patientId)) {
+      App.showToast('Please select a patient first.', 'error');
+      return;
+    }
 
     const minAngle  = parseFloat(document.getElementById('dpMinAngle')?.value) || 30;
     const maxAngle  = parseFloat(document.getElementById('dpMaxAngle')?.value) || 120;
     const targetReps= parseInt(document.getElementById('dpTargetReps')?.value)  || 10;
     const motionLimit= parseFloat(document.getElementById('dpMotionLimit')?.value) || 100;
     const tempLimit = 40;
-    const exerciseType = document.getElementById('dpExerciseType')?.value || 'Knee Flexion / Extension';
+    const exerciseType = document.getElementById('dpExerciseType')?.value || 'Bicep Curl';
     const videoUrl   = document.getElementById('dpVideoUrl')?.value.trim() || '';
     const strictLimit= document.getElementById('dpStrictLimit')?.checked ?? true;
     const notes      = document.getElementById('dpNotes')?.value.trim() || '';
 
     if (minAngle >= maxAngle) {
-      App.showToast('Min angle must be less than max angle', 'error');
+      App.showToast('Min angle must be strictly less than max angle', 'error');
       return;
     }
 
@@ -358,7 +366,7 @@ const DoctorPortal = (() => {
         await Auth.updatePatientProfile(patient);
       }
 
-      App.showToast('Thresholds & YouTube Demo saved successfully!', 'success');
+      App.showToast('✓ Thresholds & Prescription saved successfully!', 'success');
 
       // Refresh threshold history
       const threshHistory = await Auth.getThresholdHistoryForPatient(patientId);
@@ -374,11 +382,54 @@ const DoctorPortal = (() => {
     }
   }
 
+  // ─── Save Prescription (YouTube Video Section) ────────────────────────────
+  async function savePrescription() {
+    const form = document.getElementById('thresholdForm');
+    const patientId = currentActivePatientId || (form && form.dataset.patientId ? parseInt(form.dataset.patientId) : null);
+
+    if (!patientId || isNaN(patientId)) {
+      App.showToast('Please select a patient first.', 'error');
+      return;
+    }
+
+    const videoUrl = document.getElementById('dpVideoUrl')?.value.trim() || '';
+    const videoTitle = document.getElementById('dpVideoTitle')?.value.trim() || '';
+    const videoNotes = document.getElementById('dpVideoNotes')?.value.trim() || '';
+
+    try {
+      const existing = await Auth.getThresholdForPatient(patientId);
+      if (existing) {
+        existing.video_url = videoUrl;
+        existing.videoUrl = videoUrl;
+        if (videoNotes) existing.notes = videoNotes;
+        await Auth.saveThreshold(existing);
+      } else {
+        await Auth.saveThreshold({
+          patientId,
+          doctorId: session.userId,
+          minAngle: parseFloat(document.getElementById('dpMinAngle')?.value) || 30,
+          maxAngle: parseFloat(document.getElementById('dpMaxAngle')?.value) || 110,
+          targetReps: parseInt(document.getElementById('dpTargetReps')?.value) || 12,
+          exerciseType: document.getElementById('dpExerciseType')?.value || 'Bicep Curl',
+          video_url: videoUrl,
+          videoUrl,
+          notes: videoNotes
+        });
+      }
+
+      App.showToast('✓ Exercise video prescription updated!', 'success');
+      const threshHistory = await Auth.getThresholdHistoryForPatient(patientId);
+      renderThresholdHistory(threshHistory);
+    } catch (e) {
+      console.error('[DoctorPortal] Prescription save error:', e);
+      App.showToast('Error saving prescription: ' + e.message, 'error');
+    }
+  }
+
   // ─── Save Patient Profile ─────────────────────────────────────────────────
   async function savePatientProfile() {
     const form = document.getElementById('patientProfileForm');
-    if (!form) return;
-    const patientId = parseInt(form.dataset.patientId);
+    const patientId = currentActivePatientId || (form && form.dataset.patientId ? parseInt(form.dataset.patientId) : null);
 
     const name      = document.getElementById('dpEditName')?.value.trim();
     const age       = parseInt(document.getElementById('dpEditAge')?.value) || null;
@@ -408,7 +459,9 @@ const DoctorPortal = (() => {
   // ─── Bind Events ──────────────────────────────────────────────────────────
   function bindDoctorEvents() {
     document.getElementById('thresholdSaveBtn')?.addEventListener('click', saveThreshold);
+    document.getElementById('prescriptionSaveBtn')?.addEventListener('click', savePrescription);
     document.getElementById('patientProfileSaveBtn')?.addEventListener('click', savePatientProfile);
+
     
     // Add Patient Modal Openers & Handlers
     function openAddPatientModal() {
