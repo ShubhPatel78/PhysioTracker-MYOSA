@@ -221,23 +221,33 @@ const PatientPortal = (() => {
       _setEl('ptRepCountBig', repCount);
     } else {
       // ── Software Dynamic Rep Counter ──
-      // Dynamic thresholds: UP at 60% of prescribed max (or min 30°), DOWN at 25% of max (or 20°)
+      // Dynamic thresholds: UP at 60% of prescribed max, DOWN at 25% of max
       const maxA = threshold.maxAngle || 88;
-      const upThresh   = Math.max(30, Math.min(maxA - 10, maxA * 0.60));
-      const downThresh = Math.max(10, Math.min(25, maxA * 0.25));
+      const upThresh   = Math.max(35, Math.min(maxA - 10, maxA * 0.60));
+      const downThresh = Math.max(10, Math.min(22, maxA * 0.25));
 
+      const now = Date.now();
+      if (!window._lastPeakTime) window._lastPeakTime = 0;
+
+      // Only transition to UP if sensor actually moved past UP threshold
       if (!wasAboveMin && movementAngle >= upThresh) {
         wasAboveMin = true;
+        window._lastPeakTime = now;
         _setEl('ptLiveMsg', 'Hold Peak Curl...');
       } else if (wasAboveMin && movementAngle <= downThresh) {
-        wasAboveMin = false;
-        repCount++;
-        repTimestamps.push(Date.now());
-        _setEl('ptRepCount', repCount);
-        _setEl('ptRepCountBig', repCount);
-        _setEl('ptLiveMsg', 'Rep Complete! Ready');
+        // Enforce minimum curl duration (at least 600ms between peak and return) to reject jitter
+        if (now - window._lastPeakTime >= 600) {
+          wasAboveMin = false;
+          repCount++;
+          repTimestamps.push(now);
+          _setEl('ptRepCount', repCount);
+          _setEl('ptRepCountBig', repCount);
+          _setEl('ptLiveMsg', 'Rep Complete! Ready');
+        }
       } else if (movementAngle > downThresh && movementAngle < upThresh) {
         _setEl('ptLiveMsg', wasAboveMin ? 'Lowering...' : 'Curling Up...');
+      } else if (movementAngle <= downThresh && !wasAboveMin) {
+        _setEl('ptLiveMsg', 'Resting Position (Ready)');
       }
     }
 
@@ -321,14 +331,19 @@ const PatientPortal = (() => {
     // Show calibration banner
     _showExerciseAlert('info', `📐 Hold your arm in the RESTING position... Calibrating for 3 seconds`);
 
+    // Stop any background simulated demo so reps only come from real hardware
+    if (App.isDemo && App.isDemo()) {
+      App.stopDemo();
+    }
+
     // Check if hardware sensor is connected
     const isConn = (typeof Connection !== 'undefined' && Connection.getStatus && Connection.getStatus() === 'connected');
     if (isConn) {
       App.showToast('Hold resting position for 3 seconds — calibrating baseline...', 'info');
       Connection.sendCommand('EX:' + threshold.exerciseType);
     } else {
-      App.showToast('Hold resting position for 3 seconds — calibrating (Simulated Mode)', 'info');
-      App.startDemo();
+      App.showToast('⚠️ Bluetooth sensor not connected. Click "Connect BLE Sensor" top right.', 'warning');
+      _showExerciseAlert('warning', '⚠️ Sensor not connected. Please click "Connect BLE Sensor" at the top right to link your device.');
     }
 
 
