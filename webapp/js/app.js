@@ -385,19 +385,32 @@ const App = (() => {
 
   // ─── Demo Mode ────────────────────────────────────────────────────────────
   function startDemo() {
+    if (demoInterval) clearInterval(demoInterval); // prevent double-start
     demoMode = true;
     let t = 0;
     demoInterval = setInterval(() => {
       t += 0.05;
-      const noise = () => (Math.random() - 0.5) * 0.02;
+      const noise = () => (Math.random() - 0.5) * 1.5;
+
+      // Simulate a real bicep curl: angle goes 0° → 120° → 0° (~1 rep per 3 seconds)
+      // sin oscillates -1 to 1; map to 0–120
+      const rawCurl = 60 + 62 * Math.sin(t * 1.05);
+      const pitchDeg = Math.max(0, rawCurl + noise());
+
+      const gx = Math.cos(t) * 30;
+      const gy = Math.sin(t * 0.7) * 20;
+      const gz = Math.sin(t * 0.4) * 10;
+
       processSensorData({
-        ax: Math.sin(t * 0.8) * 0.3 + noise(),
-        ay: Math.cos(t * 0.6) * 0.2 + noise(),
-        az: 0.95 + Math.sin(t * 1.2) * 0.1 + noise(),
-        gx: Math.sin(t * 1.5) * 15 + noise() * 5,
-        gy: Math.cos(t * 1.1) * 10 + noise() * 5,
-        gz: Math.sin(t * 0.7) * 8  + noise() * 3,
-        tp: 36.5 + Math.sin(t * 0.1) * 0.5 + noise() * 0.1,
+        // Direct pitch field: used by rep counter and angle display
+        pitch: pitchDeg,
+        a:     pitchDeg,
+        // Derive ax/az so charts also render correctly
+        ax: Math.sin(pitchDeg * Math.PI / 180),
+        ay: 0.02,
+        az: Math.cos(pitchDeg * Math.PI / 180),
+        gx, gy, gz,
+        tp: 36.5 + Math.sin(t * 0.1) * 0.5,
         t:  Date.now(),
         cal: true,
       });
@@ -406,6 +419,7 @@ const App = (() => {
   function stopDemo() {
     demoMode = false;
     clearInterval(demoInterval);
+    demoInterval = null;
   }
 
   // ─── Auth Event Listeners ─────────────────────────────────────────────────

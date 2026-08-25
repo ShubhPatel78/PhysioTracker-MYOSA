@@ -151,8 +151,12 @@ const PatientPortal = (() => {
   function processSensorForReps(data) {
     if (!sessionActive || !threshold) return;
 
-    const pitch = data.pitch !== undefined ? data.pitch : (data._pitch !== undefined ? data._pitch : (data.a || 0));
-    const absPitch = Math.abs(pitch);
+    // Resolve pitch: prefer direct pitch field, then _pitch, then computed from ax
+    const rawPitch = data.pitch !== undefined && data.pitch !== null
+      ? parseFloat(data.pitch)
+      : (data._pitch !== undefined ? parseFloat(data._pitch) : 0);
+    const absPitch = Math.abs(rawPitch);
+
     const gyroMag = Math.sqrt((data.gx || 0) ** 2 + (data.gy || 0) ** 2 + (data.gz || 0) ** 2);
     const temp = data.tp || 0;
 
@@ -167,62 +171,62 @@ const PatientPortal = (() => {
       maxLimitExceeded = true;
       if (maxLimitAlert) {
         maxLimitAlert.classList.remove('hidden');
-        if (maxLimitText) {
-          maxLimitText.textContent = `⛔ DOCTOR LIMIT: Angle (${absPitch.toFixed(1)}°) exceeds maximum allowed (${threshold.maxAngle}°)! Stop movement.`;
-        }
+        if (maxLimitText) maxLimitText.textContent = `⛔ DOCTOR LIMIT: Angle (${absPitch.toFixed(1)}°) exceeds maximum (${threshold.maxAngle}°)! Stop.`;
       }
     } else {
       maxLimitExceeded = false;
-      if (maxLimitAlert && repCount < threshold.targetReps) {
-        maxLimitAlert.classList.add('hidden');
-      }
+      if (maxLimitAlert && repCount < threshold.targetReps) maxLimitAlert.classList.add('hidden');
     }
 
-    // ── 2. Rep Counting (Hardware Direct + Software Hybrid) ──
-    if (data.reps !== null && data.reps !== undefined && data.reps > 0) {
-      repCount = data.reps;
-      _setEl('ptRepCount', repCount);
-      _setEl('ptRepCountBig', repCount);
+    // ── 2. Rep Counting ──
+    // If hardware sends rep count directly, trust it (BLE device already counted)
+    const hwReps = (data.reps !== undefined && data.reps !== null) ? parseInt(data.reps) : -1;
+    if (hwReps > 0) {
+      if (hwReps > repCount) {
+        repCount = hwReps;
+        _setEl('ptRepCount', repCount);
+        _setEl('ptRepCountBig', repCount);
+      }
     } else {
-      // Software crossing logic
-      const minThreshold = Math.max(15, (threshold.minAngle || 30) - 10);
-      const maxThreshold = Math.min(170, (threshold.maxAngle || 110) - 15);
-      
-      if (absPitch >= maxThreshold && !maxLimitExceeded) {
-        wasAboveMin = true;
-      } else if (wasAboveMin && absPitch <= minThreshold) {
+      // Software hysteresis rep counter
+      // UP threshold: 60% of max angle, minimum 45°
+      const upThresh  = Math.min(threshold.maxAngle - 10, Math.max(45, threshold.maxAngle * 0.6));
+      // DOWN threshold: 20% of max angle, maximum 25°
+      const downThresh = Math.max(10, Math.min(25, threshold.maxAngle * 0.2));
+
+      if (!wasAboveMin && absPitch >= upThresh && !maxLimitExceeded) {
+        wasAboveMin = true; // arm went UP — now watch for it to come back DOWN
+      } else if (wasAboveMin && absPitch <= downThresh) {
+        wasAboveMin = false;
         repCount++;
         repTimestamps.push(Date.now());
-        wasAboveMin = false;
         _setEl('ptRepCount', repCount);
         _setEl('ptRepCountBig', repCount);
       }
     }
 
-    if (repCount >= threshold.targetReps) {
-      if (!alertFired) {
-        alertFired = true;
-        _showExerciseAlert('success', `🎉 Target reached! ${repCount}/${threshold.targetReps} reps completed. Doctor recommends finishing session.`);
-        App.showToast(`🎉 Prescribed target of ${threshold.targetReps} reps completed!`, 'success');
-        if (maxLimitAlert) {
-          maxLimitAlert.classList.remove('hidden');
-          if (maxLimitText) maxLimitText.textContent = `✓ Target Complete (${threshold.targetReps} reps). Please stop and save your session.`;
-        }
+    // ── 3. Target Complete check ──
+    if (repCount >= threshold.targetReps && !alertFired) {
+      alertFired = true;
+      _showExerciseAlert('success', `🎉 Target reached! ${repCount}/${threshold.targetReps} reps. Great job — stop and save!`);
+      App.showToast(`🎉 ${threshold.targetReps} reps completed!`, 'success');
+      if (maxLimitAlert) {
+        maxLimitAlert.classList.remove('hidden');
+        if (maxLimitText) maxLimitText.textContent = `✓ Target Complete (${threshold.targetReps} reps). Please stop and save!`;
       }
     }
 
-    // ── 3. Motion Safety Alerts ──
+    // ── 4. Motion Safety ──
     if (gyroMag > (threshold.motionLimit || 120)) {
-      _showExerciseAlert('warning', `⚠ Motion too fast! Slow down for safety.`);
+      _showExerciseAlert('warning', `⚠ Motion too fast! Slow down.`);
     }
 
-    // Update live metrics
+    // Live display
     _setEl('ptLivePitch', absPitch.toFixed(1) + '°');
     _setEl('ptLiveGyro', gyroMag.toFixed(1) + ' °/s');
-    
+
     if (threshold.targetReps > 0) {
-      const pct = Math.min(repCount / threshold.targetReps, 1);
-      _updateRepRing(pct);
+      _updateRepRing(Math.min(repCount / threshold.targetReps, 1));
     }
   }
 
