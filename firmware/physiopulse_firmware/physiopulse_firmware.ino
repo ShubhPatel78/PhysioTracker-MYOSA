@@ -608,7 +608,7 @@ class CommandCallbacks : public BLECharacteristicCallbacks {
   }
 };
 
-class BLEServerCallbacks : public BLEServerCallbacks {
+class MyBLEServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     bleDeviceConnected = true;
     Serial.println("[BLE] App connected to PhysioTracker");
@@ -625,7 +625,7 @@ class BLEServerCallbacks : public BLEServerCallbacks {
 void setupBLE() {
   BLEDevice::init(DEVICE_BLE_NAME);
   pBLEServer = BLEDevice::createServer();
-  pBLEServer->setCallbacks(new BLEServerCallbacks());
+  pBLEServer->setCallbacks(new MyBLEServerCallbacks());
 
   BLEService *pService = pBLEServer->createService(BLE_SERVICE_UUID);
 
