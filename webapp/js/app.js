@@ -390,24 +390,23 @@ const App = (() => {
     let t = 0;
     demoInterval = setInterval(() => {
       t += 0.05;
-      const noise = () => (Math.random() - 0.5) * 1.5;
+      const noise = () => (Math.random() - 0.5) * 0.8;
 
       let pitchDeg;
-      if (t < 30) {
-        // ── Calibration phase (first 30s): hold arm at resting position ──
-        // Emit a steady low angle so restingBaseline ≈ 5°
-        pitchDeg = 5 + noise() * 0.5;
+      if (t < 3.0) {
+        // ── Quick calibration phase (first 3s): resting arm at 5° ──
+        pitchDeg = 5.0 + noise() * 0.2;
       } else {
-        // ── Active phase: full bicep curl cycle 5° → 120° → 5° ──
-        // After calibration, restingBaseline ≈ 5°
-        // movementAngle will swing 0° → ~115°, crossing THRESHOLD_UP (95°)
-        const activeT = t - 30;
-        pitchDeg = Math.max(0, 5 + 115 * Math.abs(Math.sin(activeT * 1.05)) + noise());
+        // ── Active phase: full bicep curl cycle 5° → 85° → 5° (~1 rep every 3s) ──
+        const activeT = t - 3.0;
+        // Swing from 5° up to 85° (amplitude 80°)
+        const curl = 5.0 + 80.0 * Math.abs(Math.sin(activeT * 1.05));
+        pitchDeg = Math.max(0, curl + noise());
       }
 
-      const gx = Math.cos(t) * 30;
-      const gy = Math.sin(t * 0.7) * 20;
-      const gz = Math.sin(t * 0.4) * 10;
+      const gx = Math.cos(t) * 15;
+      const gy = Math.sin(t * 0.7) * 10;
+      const gz = Math.sin(t * 0.3) * 2; // low lateral twist error
 
       processSensorData({
         pitch: pitchDeg,
@@ -427,6 +426,7 @@ const App = (() => {
     clearInterval(demoInterval);
     demoInterval = null;
   }
+
 
 
   // ─── Auth Event Listeners ─────────────────────────────────────────────────

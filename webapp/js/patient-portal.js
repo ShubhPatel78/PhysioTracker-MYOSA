@@ -25,12 +25,13 @@ const PatientPortal = (() => {
   let maxLimitExceeded = false;
   let painAlertsLogged = 0;
 
-  // ─── Resting Position Calibration (30-second window after Start Exercise) ──
-  const CALIB_DURATION_MS = 30000;  // 30 seconds
+  // ─── Resting Position Calibration (3-second window after Start Exercise) ──
+  const CALIB_DURATION_MS = 3000;   // 3 seconds quick calibration
   let calibSamples    = [];         // raw pitch readings during calibration window
   let calibStartTime  = null;       // timestamp when calibration began
   let restingBaseline = null;       // computed mean → patient's neutral/resting angle
-  let isCalibrating   = false;      // true while 30-second window is active
+  let isCalibrating   = false;      // true while calibration window is active
+
 
 
   // Selected pain level in modal
@@ -383,17 +384,18 @@ const PatientPortal = (() => {
     renderVideoDemo();
 
     // Show calibration banner
-    _showExerciseAlert('info', `📐 Hold your arm in the RESTING position... Calibrating for 30 seconds`);
+    _showExerciseAlert('info', `📐 Hold your arm in the RESTING position... Calibrating for 3 seconds`);
 
     // Check if hardware sensor is connected
     const isConn = (typeof Connection !== 'undefined' && Connection.getStatus && Connection.getStatus() === 'connected');
     if (isConn) {
-      App.showToast('Hold resting position for 30 seconds — calibrating baseline...', 'info');
+      App.showToast('Hold resting position for 3 seconds — calibrating baseline...', 'info');
       Connection.sendCommand('EX:' + threshold.exerciseType);
     } else {
-      App.showToast('Hold resting position for 30 seconds — calibrating (Simulated Mode)', 'info');
+      App.showToast('Hold resting position for 3 seconds — calibrating (Simulated Mode)', 'info');
       App.startDemo();
     }
+
 
 
     const timerEl = document.getElementById('ptExerciseTimer');
