@@ -277,10 +277,15 @@ const PatientPortal = (() => {
 
     renderVideoDemo();
 
-    App.showToast('Exercise session started! Follow the demonstration.', 'success');
-    // Send BLE exercise selection command if connected
-    if (typeof Connection !== 'undefined' && Connection.sendCommand && threshold?.exerciseType) {
+    // Check if hardware sensor is connected
+    const isConn = (typeof Connection !== 'undefined' && Connection.getStatus && Connection.getStatus() === 'connected');
+    if (isConn) {
+      App.showToast('Exercise session started! Hardware sensor is active.', 'success');
       Connection.sendCommand('EX:' + threshold.exerciseType);
+    } else {
+      // Auto-activate demo simulation so patient/tester can see reps even without hardware
+      App.showToast('Starting exercise session (Simulated Movement Mode)', 'info');
+      App.startDemo();
     }
 
     const timerEl = document.getElementById('ptExerciseTimer');
@@ -297,6 +302,7 @@ const PatientPortal = (() => {
 
     sessionActive = false;
     clearInterval(window._ptTimerInterval);
+    if (App.isDemo && App.isDemo()) { App.stopDemo(); }
 
     const duration_s = Math.round((Date.now() - sessionStartTime) / 1000);
     const maxAngleReached = sessionAngles.length > 0 ? Math.max(...sessionAngles) : 0;
