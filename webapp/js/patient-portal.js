@@ -159,7 +159,11 @@ const PatientPortal = (() => {
 
   // ─── Rep Counting & Max Limit Enforcement ──────────────────────────────────
   function processSensorForReps(data) {
-    if (!sessionActive || !threshold) return;
+    if (!sessionActive) return;
+
+    if (!threshold) {
+      threshold = { minAngle: 5, maxAngle: 88, targetReps: 12, exerciseType: 'Bicep Curl' };
+    }
 
     // Resolve pitch: prefer direct pitch field, then _pitch
     const rawPitch = data.pitch !== undefined && data.pitch !== null
@@ -169,6 +173,7 @@ const PatientPortal = (() => {
 
     const gyroMag = Math.sqrt((data.gx || 0) ** 2 + (data.gy || 0) ** 2 + (data.gz || 0) ** 2);
     const temp = data.tp || 0;
+
 
     // ── Phase 1: Resting Position Calibration (30-second window) ──────────────
     if (isCalibrating) {

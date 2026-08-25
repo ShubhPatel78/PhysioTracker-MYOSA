@@ -284,10 +284,11 @@ const App = (() => {
     Charts.push(data);
     Session.addDataPoint(data);
 
-    // Patient rep counting
-    if (userRole === 'patient') {
+    // Patient rep counting — always process if an exercise session is currently active
+    if (typeof PatientPortal !== 'undefined' && PatientPortal.processSensorForReps) {
       PatientPortal.processSensorForReps(data);
     }
+
 
     frameCount++;
     lastUpdateTime = now;
