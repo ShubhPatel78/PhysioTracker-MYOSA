@@ -25,8 +25,15 @@ const PatientPortal = (() => {
   let maxLimitExceeded = false;
   let painAlertsLogged = 0;
 
+  // ─── Resting Position Calibration (first 15 samples after Start Exercise) ──
+  const CALIB_SAMPLE_COUNT = 15;
+  let calibSamples   = [];    // raw pitch readings during calibration window
+  let restingBaseline = null; // computed mean → patient's neutral/resting angle
+  let isCalibrating  = false; // true while the 15 samples are being collected
+
   // Selected pain level in modal
   let selectedPainLevel = 'Mild';
+
 
   // ─── Motivational Quotes Pool ─────────────────────────────────────────────
   const MOTIVATIONAL_QUOTES = [
@@ -151,7 +158,7 @@ const PatientPortal = (() => {
   function processSensorForReps(data) {
     if (!sessionActive || !threshold) return;
 
-    // Resolve pitch: prefer direct pitch field, then _pitch, then computed from ax
+    // Resolve pitch: prefer direct pitch field, then _pitch
     const rawPitch = data.pitch !== undefined && data.pitch !== null
       ? parseFloat(data.pitch)
       : (data._pitch !== undefined ? parseFloat(data._pitch) : 0);
@@ -160,26 +167,53 @@ const PatientPortal = (() => {
     const gyroMag = Math.sqrt((data.gx || 0) ** 2 + (data.gy || 0) ** 2 + (data.gz || 0) ** 2);
     const temp = data.tp || 0;
 
-    sessionAngles.push(absPitch);
+    // ── Phase 1: Resting Position Calibration (first 15 samples) ──────────────
+    if (isCalibrating) {
+      calibSamples.push(absPitch);
+      const collected = calibSamples.length;
+
+      // Update banner with progress
+      _showExerciseAlert('info',
+        `📐 Hold RESTING position... Calibrating (${collected}/${CALIB_SAMPLE_COUNT} samples)`);
+
+      if (collected >= CALIB_SAMPLE_COUNT) {
+        // Compute mean of 15 samples as the resting baseline
+        const sum = calibSamples.reduce((a, b) => a + b, 0);
+        restingBaseline = sum / calibSamples.length;
+        isCalibrating = false;
+
+        _showExerciseAlert('success',
+          `✅ Resting baseline set: ${restingBaseline.toFixed(1)}° — Begin your ${threshold.exerciseType || 'exercise'}!`);
+        App.showToast(`Calibrated! Resting position = ${restingBaseline.toFixed(1)}°. Start exercising!`, 'success');
+      }
+      // During calibration, still show live angle but don't count reps yet
+      _setEl('ptLivePitch', absPitch.toFixed(1) + '°');
+      return;
+    }
+
+    // ── Phase 2: Active Rep Counting (angle measured relative to resting baseline) ──
+    // Movement angle = how far the limb has moved FROM the resting position
+    const movementAngle = Math.abs(absPitch - (restingBaseline || 0));
+
+    sessionAngles.push(movementAngle);
     sessionTemps.push(temp);
 
     const maxLimitAlert = document.getElementById('ptMaxLimitAlert');
     const maxLimitText = document.getElementById('ptMaxLimitText');
 
-    // ── 1. Strict Max Angle Enforcement ──
-    if (absPitch > threshold.maxAngle) {
+    // ── 1. Strict Max Angle Enforcement (based on movement from resting) ──
+    if (movementAngle > threshold.maxAngle) {
       maxLimitExceeded = true;
       if (maxLimitAlert) {
         maxLimitAlert.classList.remove('hidden');
-        if (maxLimitText) maxLimitText.textContent = `⛔ DOCTOR LIMIT: Angle (${absPitch.toFixed(1)}°) exceeds maximum (${threshold.maxAngle}°)! Stop.`;
+        if (maxLimitText) maxLimitText.textContent = `⛔ DOCTOR LIMIT: Movement (${movementAngle.toFixed(1)}°) exceeds maximum (${threshold.maxAngle}°)! Stop.`;
       }
     } else {
       maxLimitExceeded = false;
       if (maxLimitAlert && repCount < threshold.targetReps) maxLimitAlert.classList.add('hidden');
     }
 
-    // ── 2. Rep Counting ──
-    // If hardware sends rep count directly, trust it (BLE device already counted)
+    // ── 2. Rep Counting (uses movement angle from resting baseline) ──
     const hwReps = (data.reps !== undefined && data.reps !== null) ? parseInt(data.reps) : -1;
     if (hwReps > 0) {
       if (hwReps > repCount) {
@@ -188,15 +222,13 @@ const PatientPortal = (() => {
         _setEl('ptRepCountBig', repCount);
       }
     } else {
-      // Software hysteresis rep counter
-      // UP threshold: 60% of max angle, minimum 45°
-      const upThresh  = Math.min(threshold.maxAngle - 10, Math.max(45, threshold.maxAngle * 0.6));
-      // DOWN threshold: 20% of max angle, maximum 25°
-      const downThresh = Math.max(10, Math.min(25, threshold.maxAngle * 0.2));
+      // Software hysteresis — measured from the resting baseline
+      const upThresh   = Math.min(threshold.maxAngle - 10, Math.max(35, threshold.maxAngle * 0.6));
+      const downThresh = Math.max(5, Math.min(20, threshold.maxAngle * 0.15));
 
-      if (!wasAboveMin && absPitch >= upThresh && !maxLimitExceeded) {
-        wasAboveMin = true; // arm went UP — now watch for it to come back DOWN
-      } else if (wasAboveMin && absPitch <= downThresh) {
+      if (!wasAboveMin && movementAngle >= upThresh && !maxLimitExceeded) {
+        wasAboveMin = true;
+      } else if (wasAboveMin && movementAngle <= downThresh) {
         wasAboveMin = false;
         repCount++;
         repTimestamps.push(Date.now());
@@ -205,10 +237,10 @@ const PatientPortal = (() => {
       }
     }
 
-    // ── 3. Target Complete check ──
+    // ── 3. Target Complete ──
     if (repCount >= threshold.targetReps && !alertFired) {
       alertFired = true;
-      _showExerciseAlert('success', `🎉 Target reached! ${repCount}/${threshold.targetReps} reps. Great job — stop and save!`);
+      _showExerciseAlert('success', `🎉 Target reached! ${repCount}/${threshold.targetReps} reps. Stop and save!`);
       App.showToast(`🎉 ${threshold.targetReps} reps completed!`, 'success');
       if (maxLimitAlert) {
         maxLimitAlert.classList.remove('hidden');
@@ -221,8 +253,9 @@ const PatientPortal = (() => {
       _showExerciseAlert('warning', `⚠ Motion too fast! Slow down.`);
     }
 
-    // Live display
-    _setEl('ptLivePitch', absPitch.toFixed(1) + '°');
+    // Live display — show movement angle (relative to resting), not raw pitch
+    _setEl('ptLivePitch', movementAngle.toFixed(1) + '°');
+
     _setEl('ptLiveGyro', gyroMag.toFixed(1) + ' °/s');
 
     if (threshold.targetReps > 0) {
@@ -270,6 +303,11 @@ const PatientPortal = (() => {
     sessionTemps = [];
     repTimestamps = [];
 
+    // ── Reset resting position calibration ──
+    calibSamples    = [];
+    restingBaseline = null;
+    isCalibrating   = true;
+
     _setEl('ptRepCount', 0);
     _setEl('ptRepCountBig', 0);
     _updateRepRing(0);
@@ -281,14 +319,16 @@ const PatientPortal = (() => {
 
     renderVideoDemo();
 
+    // Show calibration banner
+    _showExerciseAlert('info', `📐 Hold your arm in the RESTING position... Calibrating (0/${CALIB_SAMPLE_COUNT} samples)`);
+
     // Check if hardware sensor is connected
     const isConn = (typeof Connection !== 'undefined' && Connection.getStatus && Connection.getStatus() === 'connected');
     if (isConn) {
-      App.showToast('Exercise session started! Hardware sensor is active.', 'success');
+      App.showToast('Hold resting position — calibrating baseline (15 samples)...', 'info');
       Connection.sendCommand('EX:' + threshold.exerciseType);
     } else {
-      // Auto-activate demo simulation so patient/tester can see reps even without hardware
-      App.showToast('Starting exercise session (Simulated Movement Mode)', 'info');
+      App.showToast('Hold resting position — calibrating (Simulated Mode)', 'info');
       App.startDemo();
     }
 
@@ -300,6 +340,7 @@ const PatientPortal = (() => {
       if (timerEl) timerEl.textContent = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }, 500);
   }
+
 
   async function stopExercise() {
     if (!sessionActive) return;
