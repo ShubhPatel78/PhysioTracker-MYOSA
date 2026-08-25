@@ -585,14 +585,26 @@ void processCommand(const String& cmd) {
   }
 }
 
+// ─── Global Last Sensor Reading Cache ─────────────────────────────────────
+MPU6050Data gLastSensor;
+
 // ─── Build Telemetry JSON ──────────────────────────────────────────────────
 String buildTelemetryJSON() {
   bool isCircular = (currentExercise == "Hand Circular Movement" || currentExercise == "Wrist Circumduction");
   float displayAngle = isCircular ? fmod(fabs(circleLiveAngle), 360.0f) : fabs(liveAngle);
 
+  // Fallback: if calibState < 2, calculate direct accelerometer tilt angle
+  if (calibState < 2) {
+    float directPitch = atan2(gLastSensor.accelX, sqrt(gLastSensor.accelY * gLastSensor.accelY + gLastSensor.accelZ * gLastSensor.accelZ)) * 180.0f / PI;
+    displayAngle = fabs(directPitch);
+  }
+
   char buf[256];
-  snprintf(buf, sizeof(buf), "{\"r\":%d,\"a\":%.1f,\"tw\":%.1f,\"st\":%d,\"msg\":\"%s\"}",
-           reps, displayAngle, fabs(twistError), calibState, formStatus.c_str());
+  snprintf(buf, sizeof(buf), "{\"r\":%d,\"a\":%.1f,\"tw\":%.1f,\"st\":%d,\"msg\":\"%s\",\"ax\":%.3f,\"ay\":%.3f,\"az\":%.3f,\"gx\":%.1f,\"gy\":%.1f,\"gz\":%.1f,\"tp\":%.1f}",
+           reps, displayAngle, fabs(twistError), calibState, formStatus.c_str(),
+           gLastSensor.accelX, gLastSensor.accelY, gLastSensor.accelZ,
+           gLastSensor.gyroX, gLastSensor.gyroY, gLastSensor.gyroZ,
+           gLastSensor.temperature);
   return String(buf);
 }
 
@@ -687,6 +699,7 @@ void loop() {
   // 1. Read MPU-6050 Sensor & run 3D Vector Gravity Fusion
   MPU6050Data sensorData = mpu.read();
   if (sensorData.valid) {
+    gLastSensor = sensorData;
     unsigned long nowMicros = micros();
     float dt = (nowMicros - lastFusionMicros) / 1e6f;
     if (dt <= 0 || dt > 0.5f) dt = 0.01f;

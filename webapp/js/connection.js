@@ -176,16 +176,25 @@ const Connection = (() => {
         const json = decoder.decode(evt.target.value);
         try {
           const data = JSON.parse(json);
-          // Normalize telemetry data: { r, a, tw, st, msg } -> standard app format
+          // Normalize telemetry data: { r, a, tw, st, msg, ax, ay, az, gx, gy, gz, tp } -> standard app format
           emit('data', {
-            pitch: data.a !== undefined ? data.a : (data.pitch || 0),
-            reps: data.r !== undefined ? data.r : 0,
+            pitch: data.a !== undefined ? parseFloat(data.a) : (data.pitch !== undefined ? parseFloat(data.pitch) : 0),
+            reps: data.r !== undefined ? parseInt(data.r) : 0,
             timeWindow: data.tw !== undefined ? data.tw : 0,
             stage: data.st !== undefined ? data.st : 0,
             message: data.msg || '',
+            ax: data.ax !== undefined ? parseFloat(data.ax) : 0,
+            ay: data.ay !== undefined ? parseFloat(data.ay) : 0,
+            az: data.az !== undefined ? parseFloat(data.az) : 0,
+            gx: data.gx !== undefined ? parseFloat(data.gx) : 0,
+            gy: data.gy !== undefined ? parseFloat(data.gy) : 0,
+            gz: data.gz !== undefined ? parseFloat(data.gz) : 0,
+            tp: data.tp !== undefined ? parseFloat(data.tp) : 36.5,
             raw: data
           });
-        } catch (e) {}
+        } catch (e) {
+          console.warn('[BLE JSON parse error]', e, json);
+        }
       });
 
       // Get Command Characteristic
