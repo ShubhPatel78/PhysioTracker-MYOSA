@@ -25,11 +25,13 @@ const PatientPortal = (() => {
   let maxLimitExceeded = false;
   let painAlertsLogged = 0;
 
-  // ─── Resting Position Calibration (first 15 samples after Start Exercise) ──
-  const CALIB_SAMPLE_COUNT = 15;
-  let calibSamples   = [];    // raw pitch readings during calibration window
-  let restingBaseline = null; // computed mean → patient's neutral/resting angle
-  let isCalibrating  = false; // true while the 15 samples are being collected
+  // ─── Resting Position Calibration (30-second window after Start Exercise) ──
+  const CALIB_DURATION_MS = 30000;  // 30 seconds
+  let calibSamples    = [];         // raw pitch readings during calibration window
+  let calibStartTime  = null;       // timestamp when calibration began
+  let restingBaseline = null;       // computed mean → patient's neutral/resting angle
+  let isCalibrating   = false;      // true while 30-second window is active
+
 
   // Selected pain level in modal
   let selectedPainLevel = 'Mild';
@@ -167,29 +169,36 @@ const PatientPortal = (() => {
     const gyroMag = Math.sqrt((data.gx || 0) ** 2 + (data.gy || 0) ** 2 + (data.gz || 0) ** 2);
     const temp = data.tp || 0;
 
-    // ── Phase 1: Resting Position Calibration (first 15 samples) ──────────────
+    // ── Phase 1: Resting Position Calibration (30-second window) ──────────────
     if (isCalibrating) {
       calibSamples.push(absPitch);
-      const collected = calibSamples.length;
 
-      // Update banner with progress
+      const elapsed   = Date.now() - calibStartTime;
+      const remaining = Math.max(0, Math.ceil((CALIB_DURATION_MS - elapsed) / 1000));
+
+      // Live countdown banner
       _showExerciseAlert('info',
-        `📐 Hold RESTING position... Calibrating (${collected}/${CALIB_SAMPLE_COUNT} samples)`);
+        `📐 Hold RESTING position... Calibrating — ${remaining}s remaining (${calibSamples.length} samples)`);
 
-      if (collected >= CALIB_SAMPLE_COUNT) {
-        // Compute mean of 15 samples as the resting baseline
+      if (elapsed >= CALIB_DURATION_MS) {
+        // 30 seconds done — compute mean baseline
         const sum = calibSamples.reduce((a, b) => a + b, 0);
         restingBaseline = sum / calibSamples.length;
-        isCalibrating = false;
+        isCalibrating   = false;
 
         _showExerciseAlert('success',
           `✅ Resting baseline set: ${restingBaseline.toFixed(1)}° — Begin your ${threshold.exerciseType || 'exercise'}!`);
-        App.showToast(`Calibrated! Resting position = ${restingBaseline.toFixed(1)}°. Start exercising!`, 'success');
+        App.showToast(
+          `✅ Baseline locked at ${restingBaseline.toFixed(1)}° (${calibSamples.length} samples). Start exercising!`,
+          'success'
+        );
       }
-      // During calibration, still show live angle but don't count reps yet
+
+      // Show live angle during calibration but don't count reps yet
       _setEl('ptLivePitch', absPitch.toFixed(1) + '°');
       return;
     }
+
 
     // ── Phase 2: Active Rep Counting (angle measured relative to resting baseline) ──
     // Movement angle = how far the limb has moved FROM the resting position
@@ -305,8 +314,10 @@ const PatientPortal = (() => {
 
     // ── Reset resting position calibration ──
     calibSamples    = [];
+    calibStartTime  = Date.now();
     restingBaseline = null;
     isCalibrating   = true;
+
 
     _setEl('ptRepCount', 0);
     _setEl('ptRepCountBig', 0);
@@ -320,17 +331,18 @@ const PatientPortal = (() => {
     renderVideoDemo();
 
     // Show calibration banner
-    _showExerciseAlert('info', `📐 Hold your arm in the RESTING position... Calibrating (0/${CALIB_SAMPLE_COUNT} samples)`);
+    _showExerciseAlert('info', `📐 Hold your arm in the RESTING position... Calibrating for 30 seconds`);
 
     // Check if hardware sensor is connected
     const isConn = (typeof Connection !== 'undefined' && Connection.getStatus && Connection.getStatus() === 'connected');
     if (isConn) {
-      App.showToast('Hold resting position — calibrating baseline (15 samples)...', 'info');
+      App.showToast('Hold resting position for 30 seconds — calibrating baseline...', 'info');
       Connection.sendCommand('EX:' + threshold.exerciseType);
     } else {
-      App.showToast('Hold resting position — calibrating (Simulated Mode)', 'info');
+      App.showToast('Hold resting position for 30 seconds — calibrating (Simulated Mode)', 'info');
       App.startDemo();
     }
+
 
     const timerEl = document.getElementById('ptExerciseTimer');
     window._ptTimerInterval = setInterval(() => {
