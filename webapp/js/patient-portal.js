@@ -199,30 +199,45 @@ const PatientPortal = (() => {
       return;
     }
 
-
-    // ── Phase 2: Active Rep Counting (angle measured relative to resting baseline) ──
-    // Movement angle = how far the limb has moved FROM the resting position
-    const movementAngle = Math.abs(absPitch - (restingBaseline || 0));
+    // ── Phase 2: Active Rep Counting — mirrors firmware processBicepCurl() exactly ──
+    // liveAngle = signed movement away from resting baseline
+    // positive = curling toward body, negative = hyperextension past rest
+    const liveAngle    = absPitch - (restingBaseline || 0);
+    const movementAngle = Math.abs(liveAngle); // for display & max-limit check
 
     sessionAngles.push(movementAngle);
     sessionTemps.push(temp);
 
-    const maxLimitAlert = document.getElementById('ptMaxLimitAlert');
-    const maxLimitText = document.getElementById('ptMaxLimitText');
+    // ── Firmware thresholds (exact match) ──
+    const safeTarget    = Math.min(threshold.maxAngle || 110, 175);
+    const THRESHOLD_UP  = safeTarget - 15;
+    let   THRESHOLD_DOWN = 20.0;
+    if (THRESHOLD_DOWN >= THRESHOLD_UP) THRESHOLD_DOWN = THRESHOLD_UP - 10;
+    const HYPEREXTEND_LIMIT  = Math.min(-15, THRESHOLD_DOWN - 20);
+    const MAX_SWAY_TOLERANCE = (threshold.maxDeviationPlane || 30) + 5;
 
-    // ── 1. Strict Max Angle Enforcement (based on movement from resting) ──
+    // twistError approximation: lateral gyro component (gz) scaled
+    const twistError = Math.abs(data.gz || 0) * 0.5;
+
+    const maxLimitAlert = document.getElementById('ptMaxLimitAlert');
+    const maxLimitText  = document.getElementById('ptMaxLimitText');
+
+    // ── Doctor max-angle safety (web-only guard, firmware has its own) ──
     if (movementAngle > threshold.maxAngle) {
       maxLimitExceeded = true;
       if (maxLimitAlert) {
         maxLimitAlert.classList.remove('hidden');
-        if (maxLimitText) maxLimitText.textContent = `⛔ DOCTOR LIMIT: Movement (${movementAngle.toFixed(1)}°) exceeds maximum (${threshold.maxAngle}°)! Stop.`;
+        if (maxLimitText)
+          maxLimitText.textContent =
+            `⛔ DOCTOR LIMIT: Movement (${movementAngle.toFixed(1)}°) exceeds maximum (${threshold.maxAngle}°)! Stop.`;
       }
     } else {
       maxLimitExceeded = false;
       if (maxLimitAlert && repCount < threshold.targetReps) maxLimitAlert.classList.add('hidden');
     }
 
-    // ── 2. Rep Counting (uses movement angle from resting baseline) ──
+    // ── Rep counting ──
+    // If hardware already counted reps, trust firmware directly
     const hwReps = (data.reps !== undefined && data.reps !== null) ? parseInt(data.reps) : -1;
     if (hwReps > 0) {
       if (hwReps > repCount) {
@@ -231,22 +246,40 @@ const PatientPortal = (() => {
         _setEl('ptRepCountBig', repCount);
       }
     } else {
-      // Software hysteresis — measured from the resting baseline
-      const upThresh   = Math.min(threshold.maxAngle - 10, Math.max(35, threshold.maxAngle * 0.6));
-      const downThresh = Math.max(5, Math.min(20, threshold.maxAngle * 0.15));
+      // ── Exact firmware rep counting logic ──
+      let formStatus = '';
 
-      if (!wasAboveMin && movementAngle >= upThresh && !maxLimitExceeded) {
-        wasAboveMin = true;
-      } else if (wasAboveMin && movementAngle <= downThresh) {
-        wasAboveMin = false;
-        repCount++;
-        repTimestamps.push(Date.now());
-        _setEl('ptRepCount', repCount);
-        _setEl('ptRepCountBig', repCount);
+      if (twistError > MAX_SWAY_TOLERANCE) {
+        formStatus = 'Bad Form: Keep Movement Aligned!';
+        _showExerciseAlert('warning', `⚠ ${formStatus}`);
+
+      } else if (liveAngle < HYPEREXTEND_LIMIT) {
+        formStatus = 'Bad Form: Arm Dropped';
+        _showExerciseAlert('warning', `⚠ ${formStatus}`);
+
+      } else {
+        if (liveAngle > THRESHOLD_UP && !wasAboveMin) {
+          wasAboveMin = true;
+          formStatus  = 'Hold Peak Curl...';
+
+        } else if (liveAngle < THRESHOLD_DOWN && wasAboveMin) {
+          wasAboveMin = false;
+          repCount++;
+          repTimestamps.push(Date.now());
+          formStatus = 'Rep Complete! Ready';
+          _setEl('ptRepCount', repCount);
+          _setEl('ptRepCountBig', repCount);
+
+        } else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) {
+          formStatus = wasAboveMin ? 'Lowering...' : 'Curling Up...';
+        }
       }
+
+      // Show form status in the live message element
+      if (formStatus) _setEl('ptLiveMsg', formStatus);
     }
 
-    // ── 3. Target Complete ──
+    // ── Target Complete ──
     if (repCount >= threshold.targetReps && !alertFired) {
       alertFired = true;
       _showExerciseAlert('success', `🎉 Target reached! ${repCount}/${threshold.targetReps} reps. Stop and save!`);
@@ -257,20 +290,16 @@ const PatientPortal = (() => {
       }
     }
 
-    // ── 4. Motion Safety ──
-    if (gyroMag > (threshold.motionLimit || 120)) {
-      _showExerciseAlert('warning', `⚠ Motion too fast! Slow down.`);
-    }
-
-    // Live display — show movement angle (relative to resting), not raw pitch
+    // Live display
     _setEl('ptLivePitch', movementAngle.toFixed(1) + '°');
-
     _setEl('ptLiveGyro', gyroMag.toFixed(1) + ' °/s');
 
     if (threshold.targetReps > 0) {
       _updateRepRing(Math.min(repCount / threshold.targetReps, 1));
     }
   }
+
+
 
   function _updateRepRing(pct) {
     const ring = document.getElementById('repProgressRing');
