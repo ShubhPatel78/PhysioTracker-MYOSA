@@ -11,6 +11,18 @@ const DoctorPortal = (() => {
   let session = null; // current doctor session
   let currentActivePatientId = null; // active patient ID for threshold & profile forms
 
+  function updateDoctorLiveSensor(data) {
+    const liveAngleEl = document.getElementById('dpLiveAngle');
+    const twistErrorEl = document.getElementById('dpTwistError');
+    if (data && data.engine) {
+      if (liveAngleEl) liveAngleEl.textContent = data.engine.liveAngle.toFixed(1) + '°';
+      if (twistErrorEl) twistErrorEl.textContent = data.engine.twistError.toFixed(1) + '°';
+    } else if (data) {
+      if (liveAngleEl) liveAngleEl.textContent = (data.pitch || 0).toFixed(1) + '°';
+      if (twistErrorEl) twistErrorEl.textContent = '0.0°';
+    }
+  }
+
   // ─── Init ─────────────────────────────────────────────────────────────────
   async function init(doctorSession) {
     session = doctorSession;
@@ -462,6 +474,78 @@ const DoctorPortal = (() => {
     document.getElementById('prescriptionSaveBtn')?.addEventListener('click', savePrescription);
     document.getElementById('patientProfileSaveBtn')?.addEventListener('click', savePatientProfile);
 
+    // ─── 3D Calibration Step 1: Set Resting ───
+    document.getElementById('dpCalStep1Btn')?.addEventListener('click', () => {
+      const statusEl = document.getElementById('dpCalibStatus');
+      const exType = document.getElementById('dpExerciseType')?.value || 'Bicep Curl';
+      PhysioEngine.setPrescription({ exerciseType: exType });
+
+      PhysioEngine.startStep1({
+        onProgress: (count, total, status) => {
+          if (statusEl) statusEl.textContent = `Capturing Rest (${count}/${total})...`;
+        },
+        onComplete: () => {
+          if (statusEl) statusEl.textContent = "Step 1 OK. Move arm UP slightly for Step 2";
+          App.showToast("✅ Step 1 (Rest) captured! Now move limb up slightly and click Step 2.", "success");
+        },
+        onError: (err) => {
+          if (statusEl) statusEl.textContent = err;
+          App.showToast("⚠️ " + err, "error");
+        }
+      });
+    });
+
+    // ─── 3D Calibration Step 2: Set Raised (Direction) ───
+    document.getElementById('dpCalStep2Btn')?.addEventListener('click', () => {
+      const statusEl = document.getElementById('dpCalibStatus');
+      PhysioEngine.startStep2({
+        onProgress: (count, total, status) => {
+          if (statusEl) statusEl.textContent = `Capturing Direction (${count}/${total})...`;
+        },
+        onComplete: () => {
+          if (statusEl) statusEl.textContent = "Calibrated & Ready (0.0° Locked)";
+          App.showToast("✅ Coordinate frame locked! Rest is calibrated to 0.0°.", "success");
+        },
+        onError: (err) => {
+          if (statusEl) statusEl.textContent = err;
+          App.showToast("⚠️ " + err, "error");
+        }
+      });
+    });
+
+    // ─── 15s Doctor Baseline Recording ───
+    document.getElementById('dpRecordBaselineBtn')?.addEventListener('click', () => {
+      const pin = prompt("Enter Doctor PIN to record 15-second baseline:");
+      if (!pin) return;
+
+      const statusEl = document.getElementById('dpCalibStatus');
+      const exType = document.getElementById('dpExerciseType')?.value || 'Bicep Curl';
+      PhysioEngine.setPrescription({ exerciseType: exType });
+
+      const ok = PhysioEngine.startDoctorBaseline(pin, {
+        onStatus: (msg, count, total) => {
+          if (statusEl) statusEl.textContent = msg;
+        },
+        onComplete: (res) => {
+          if (statusEl) statusEl.textContent = `Baseline Saved! Target: ${res.targetMaxAngle}°, Sway: ${res.maxDeviationPlane}°`;
+          App.showToast(`🎉 15s Baseline captured! Max ROM: ${res.targetMaxAngle}°, Max Sway: ${res.maxDeviationPlane}°`, "success");
+
+          // Auto-fill form fields with calculated 90th percentile baseline metrics
+          _setVal('dpMinAngle', 10);
+          _setVal('dpMaxAngle', res.targetMaxAngle);
+          _setVal('dpMotionLimit', res.maxDeviationPlane);
+        },
+        onError: (err) => {
+          if (statusEl) statusEl.textContent = err;
+          App.showToast("⚠️ " + err, "error");
+        }
+      });
+
+      if (!ok && pin !== "1234") {
+        App.showToast("Incorrect Doctor PIN", "error");
+      }
+    });
+
     
     // Add Patient Modal Openers & Handlers
     function openAddPatientModal() {
@@ -642,5 +726,5 @@ const DoctorPortal = (() => {
     return `${sec}s`;
   }
 
-  return { init, refresh, openPatientDetail, saveThreshold, savePatientProfile, markAlertReviewed };
+  return { init, refresh, openPatientDetail, saveThreshold, savePrescription, savePatientProfile, markAlertReviewed, updateDoctorLiveSensor };
 })();

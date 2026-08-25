@@ -157,7 +157,7 @@ const PatientPortal = (() => {
     _setEl('ptLastSession', lastSession ? new Date(lastSession.date).toLocaleDateString() : 'None yet');
   }
 
-  // ─── Rep Counting & Max Limit Enforcement ──────────────────────────────────
+  // ─── Rep Counting & Max Limit Enforcement (PhysioEngine Driven) ────────────
   function processSensorForReps(data) {
     if (!sessionActive) return;
 
@@ -165,118 +165,18 @@ const PatientPortal = (() => {
       threshold = { minAngle: 5, maxAngle: 88, targetReps: 12, exerciseType: 'Bicep Curl' };
     }
 
-    // Resolve pitch: prefer direct pitch field, then _pitch
-    const rawPitch = data.pitch !== undefined && data.pitch !== null
-      ? parseFloat(data.pitch)
-      : (data._pitch !== undefined ? parseFloat(data._pitch) : 0);
-    const absPitch = Math.abs(rawPitch);
+    const engine = data.engine || (typeof PhysioEngine !== 'undefined' ? PhysioEngine.processSensorData(data) : null);
+    if (!engine) return;
 
+    const movementAngle = engine.liveAngle;
+    const twistError = engine.twistError;
+    const formStatus = engine.formStatus;
     const gyroMag = Math.sqrt((data.gx || 0) ** 2 + (data.gy || 0) ** 2 + (data.gz || 0) ** 2);
     const temp = data.tp || 0;
 
-
-    // ── Phase 1: Resting Position Calibration (3-second window) ──────────────
-    if (isCalibrating) {
-      calibSamples.push(absPitch);
-      sessionAngles.push(absPitch); // guarantee sessionAngles is never empty
-
-      const elapsed   = Date.now() - calibStartTime;
-      const remaining = Math.max(0, Math.ceil((CALIB_DURATION_MS - elapsed) / 1000));
-
-      // Live countdown banner
-      _showExerciseAlert('info',
-        `📐 Hold RESTING position... Calibrating — ${remaining}s remaining (${calibSamples.length} samples)`);
-
-      if (elapsed >= CALIB_DURATION_MS) {
-        // 3 seconds done — compute mean baseline
-        const sum = calibSamples.reduce((a, b) => a + b, 0);
-        restingBaseline = calibSamples.length > 0 ? (sum / calibSamples.length) : 0;
-        isCalibrating   = false;
-
-        _showExerciseAlert('success',
-          `✅ Resting baseline set: ${restingBaseline.toFixed(1)}° — Begin your ${threshold.exerciseType || 'exercise'}!`);
-        App.showToast(
-          `✅ Baseline locked at ${restingBaseline.toFixed(1)}°. Start curling!`,
-          'success'
-        );
-      }
-
-      // Show live angle during calibration
-      _setEl('ptLivePitch', absPitch.toFixed(1) + '°');
-      return;
-    }
-
-    // ── Phase 2: Active Rep Counting ──
-    const liveAngle = absPitch - (restingBaseline !== null ? restingBaseline : 0);
-    const movementAngle = Math.abs(liveAngle); // movement distance from rest
-
+    repCount = engine.reps;
     sessionAngles.push(movementAngle);
     sessionTemps.push(temp);
-
-    // ── Hardware Rep Sync (if ESP32 sends reps directly) ──
-    const hwReps = (data.reps !== undefined && data.reps !== null) ? parseInt(data.reps) : -1;
-    if (hwReps > 0 && hwReps > repCount) {
-      repCount = hwReps;
-      _setEl('ptRepCount', repCount);
-      _setEl('ptRepCountBig', repCount);
-    } else {
-      // ── Software Dynamic Rep Counter ──
-      // Dynamic thresholds: UP at 60% of prescribed max, DOWN at 25% of max
-      const maxA = threshold.maxAngle || 88;
-      const upThresh   = Math.max(35, Math.min(maxA - 10, maxA * 0.60));
-      const downThresh = Math.max(10, Math.min(22, maxA * 0.25));
-
-      const now = Date.now();
-      if (!window._lastPeakTime) window._lastPeakTime = 0;
-
-      const exType = threshold.exerciseType || 'Bicep Curl';
-      let upMsg = 'Holding Peak...';
-      let midUpMsg = 'Raising...';
-      let midDownMsg = 'Lowering...';
-
-      if (exType.includes('Curl')) {
-        upMsg = 'Hold Peak Curl...';
-        midUpMsg = 'Curling Up...';
-        midDownMsg = 'Lowering...';
-      } else if (exType.includes('Leg')) {
-        upMsg = 'Hold Leg Raise...';
-        midUpMsg = 'Raising Leg...';
-        midDownMsg = 'Lowering Leg...';
-      } else if (exType.includes('Side')) {
-        upMsg = 'Hold Height...';
-        midUpMsg = 'Raising Sideways...';
-        midDownMsg = 'Lowering Control...';
-      } else if (exType.includes('Front')) {
-        upMsg = 'Hold Height...';
-        midUpMsg = 'Raising Forward...';
-        midDownMsg = 'Lowering Control...';
-      } else if (exType.includes('Circle') || exType.includes('Circumduction')) {
-        upMsg = 'Loop Complete! Keep Circling...';
-        midUpMsg = 'Circling...';
-        midDownMsg = 'Circling...';
-      }
-
-      // Only transition to UP if sensor actually moved past UP threshold
-      if (!wasAboveMin && movementAngle >= upThresh) {
-        wasAboveMin = true;
-        window._lastPeakTime = now;
-        _setEl('ptLiveMsg', upMsg);
-      } else if (wasAboveMin && movementAngle <= downThresh) {
-        // Enforce minimum curl duration (at least 600ms between peak and return) to reject jitter
-        if (now - window._lastPeakTime >= 600) {
-          wasAboveMin = false;
-          repCount++;
-          repTimestamps.push(now);
-          _setEl('ptRepCount', repCount);
-          _setEl('ptRepCountBig', repCount);
-          _setEl('ptLiveMsg', 'Rep Complete! Ready');
-        }
-      } else if (movementAngle > downThresh && movementAngle < upThresh) {
-        _setEl('ptLiveMsg', wasAboveMin ? midDownMsg : midUpMsg);
-      } else if (movementAngle <= downThresh && !wasAboveMin) {
-        _setEl('ptLiveMsg', 'Resting Position (Ready)');
-      }
-    }
 
     // ── Target Complete ──
     if (repCount >= threshold.targetReps && !alertFired) {
@@ -285,17 +185,17 @@ const PatientPortal = (() => {
       App.showToast(`🎉 ${threshold.targetReps} reps completed!`, 'success');
     }
 
-    // Live display
+    // ── Live UI Display ──
+    _setEl('ptRepCount', repCount);
+    _setEl('ptRepCountBig', repCount);
     _setEl('ptLivePitch', movementAngle.toFixed(1) + '°');
     _setEl('ptLiveGyro', gyroMag.toFixed(1) + ' °/s');
+    _setEl('ptLiveMsg', formStatus);
 
     if (threshold.targetReps > 0) {
       _updateRepRing(Math.min(repCount / threshold.targetReps, 1));
     }
-
   }
-
-
 
   function _updateRepRing(pct) {
     const ring = document.getElementById('repProgressRing');
@@ -326,6 +226,17 @@ const PatientPortal = (() => {
       return;
     }
 
+    // Configure PhysioEngine with Doctor's Prescribed Baseline
+    if (typeof PhysioEngine !== 'undefined') {
+      PhysioEngine.setPrescription({
+        exerciseType: threshold.exerciseType || 'Bicep Curl',
+        maxAngle: threshold.maxAngle || 88,
+        motionLimit: threshold.motionLimit || 20,
+        targetReps: threshold.targetReps || 10
+      });
+      PhysioEngine.resetSession();
+    }
+
     sessionActive = true;
     sessionStartTime = Date.now();
     repCount = 0;
@@ -336,13 +247,6 @@ const PatientPortal = (() => {
     sessionAngles = [];
     sessionTemps = [];
     repTimestamps = [];
-
-    // ── Reset resting position calibration ──
-    calibSamples    = [];
-    calibStartTime  = Date.now();
-    restingBaseline = null;
-    isCalibrating   = true;
-
 
     _setEl('ptRepCount', 0);
     _setEl('ptRepCountBig', 0);
@@ -355,25 +259,18 @@ const PatientPortal = (() => {
 
     renderVideoDemo();
 
-    // Show calibration banner
-    _showExerciseAlert('info', `📐 Hold your arm in the RESTING position... Calibrating for 3 seconds`);
-
-    // Stop any background simulated demo so reps only come from real hardware
-    if (App.isDemo && App.isDemo()) {
-      App.stopDemo();
-    }
-
     // Check if hardware sensor is connected
     const isConn = (typeof Connection !== 'undefined' && Connection.getStatus && Connection.getStatus() === 'connected');
     if (isConn) {
-      App.showToast('Hold resting position for 3 seconds — calibrating baseline...', 'info');
-      Connection.sendCommand('EX:' + threshold.exerciseType);
+      if (typeof PhysioEngine !== 'undefined' && !PhysioEngine.isCalibrated()) {
+        App.showToast('💡 Tip: Use "1. Set Resting" & "2. Set Raised" above for perfect 0° accuracy.', 'info');
+      } else {
+        App.showToast('🚀 Exercise session started! Begin your repetitions.', 'success');
+      }
     } else {
       App.showToast('⚠️ Bluetooth sensor not connected. Click "Connect BLE Sensor" top right.', 'warning');
       _showExerciseAlert('warning', '⚠️ Sensor not connected. Please click "Connect BLE Sensor" at the top right to link your device.');
     }
-
-
 
     const timerEl = document.getElementById('ptExerciseTimer');
     window._ptTimerInterval = setInterval(() => {
@@ -600,6 +497,70 @@ const PatientPortal = (() => {
 
     document.getElementById('ptRefreshThreshold')?.addEventListener('click', () => {
       refreshThreshold().then(() => App.showToast('Thresholds & Video refreshed from doctor', 'info'));
+    });
+
+    // ── Axis Calibration Step 1: Set Resting ──
+    document.getElementById('ptCalStep1Btn')?.addEventListener('click', () => {
+      const badge = document.getElementById('ptCalibBadge');
+      if (typeof PhysioEngine !== 'undefined') {
+        PhysioEngine.startStep1({
+          onProgress: (count, total) => {
+            if (badge) {
+              badge.textContent = `Rest: ${count}/${total}`;
+              badge.style.background = 'rgba(0,212,255,0.15)';
+              badge.style.color = '#00d4ff';
+            }
+          },
+          onComplete: () => {
+            if (badge) {
+              badge.textContent = 'Move Up for Step 2';
+              badge.style.background = 'rgba(234,179,8,0.15)';
+              badge.style.color = '#facc15';
+            }
+            App.showToast('✅ Resting baseline set! Now move your limb up slightly and click Step 2.', 'success');
+          },
+          onError: (err) => {
+            if (badge) {
+              badge.textContent = 'Retry Step 1';
+              badge.style.background = 'rgba(239,68,68,0.15)';
+              badge.style.color = '#ef4444';
+            }
+            App.showToast('⚠️ ' + err, 'error');
+          }
+        });
+      }
+    });
+
+    // ── Axis Calibration Step 2: Set Raised ──
+    document.getElementById('ptCalStep2Btn')?.addEventListener('click', () => {
+      const badge = document.getElementById('ptCalibBadge');
+      if (typeof PhysioEngine !== 'undefined') {
+        PhysioEngine.startStep2({
+          onProgress: (count, total) => {
+            if (badge) {
+              badge.textContent = `Raised: ${count}/${total}`;
+              badge.style.background = 'rgba(0,212,255,0.15)';
+              badge.style.color = '#00d4ff';
+            }
+          },
+          onComplete: () => {
+            if (badge) {
+              badge.textContent = '✅ Calibrated (0.0° Locked)';
+              badge.style.background = 'rgba(34,197,94,0.15)';
+              badge.style.color = '#22c55e';
+            }
+            App.showToast('✅ Sensor orientation calibrated! You can now start exercise.', 'success');
+          },
+          onError: (err) => {
+            if (badge) {
+              badge.textContent = 'Retry Step 2';
+              badge.style.background = 'rgba(239,68,68,0.15)';
+              badge.style.color = '#ef4444';
+            }
+            App.showToast('⚠️ ' + err, 'error');
+          }
+        });
+      }
     });
   }
 

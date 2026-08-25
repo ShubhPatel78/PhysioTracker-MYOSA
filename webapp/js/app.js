@@ -241,8 +241,15 @@ const App = (() => {
     const gz = parseFloat(raw.gz) || 0;
     const tp = parseFloat(raw.tp) || 0;
 
+    let engineResult = null;
+    if (typeof PhysioEngine !== 'undefined' && PhysioEngine.processSensorData) {
+      engineResult = PhysioEngine.processSensorData({ ax, ay, az, gx, gy, gz, tp });
+    }
+
     let pitch = 0;
-    if (raw.pitch !== undefined && raw.pitch !== null) {
+    if (engineResult && engineResult.calibState >= 2) {
+      pitch = engineResult.liveAngle;
+    } else if (raw.pitch !== undefined && raw.pitch !== null) {
       pitch = parseFloat(raw.pitch) || 0;
     } else if (raw.a !== undefined && raw.a !== null) {
       pitch = parseFloat(raw.a) || 0;
@@ -255,8 +262,8 @@ const App = (() => {
     if (yaw > 180)  yaw -= 360;
     if (yaw < -180) yaw += 360;
 
-    const hardwareReps = raw.reps !== undefined ? raw.reps : (raw.r !== undefined ? raw.r : (raw.raw?.r !== undefined ? raw.raw.r : null));
-    const statusMsg = raw.message || raw.msg || raw.raw?.msg || '';
+    const hardwareReps = engineResult ? engineResult.reps : (raw.reps !== undefined ? raw.reps : (raw.r !== undefined ? raw.r : 0));
+    const statusMsg = engineResult ? engineResult.formStatus : (raw.message || raw.msg || '');
 
     latestSensorData = {
       pitch: Math.abs(pitch),
@@ -266,7 +273,8 @@ const App = (() => {
       ax, ay, az, gx, gy, gz, tp,
       _pitch: Math.abs(pitch),
       _roll: roll,
-      _yaw: yaw
+      _yaw: yaw,
+      engine: engineResult
     };
 
     const data = {
@@ -277,7 +285,8 @@ const App = (() => {
       _roll: roll,
       _yaw: yaw,
       reps: hardwareReps,
-      message: statusMsg
+      message: statusMsg,
+      engine: engineResult
     };
 
     updateSensorUI(data);
@@ -289,6 +298,10 @@ const App = (() => {
       PatientPortal.processSensorForReps(data);
     }
 
+    // Doctor live calibration & baseline sensor update
+    if (typeof DoctorPortal !== 'undefined' && DoctorPortal.updateDoctorLiveSensor) {
+      DoctorPortal.updateDoctorLiveSensor(data);
+    }
 
     frameCount++;
     lastUpdateTime = now;
