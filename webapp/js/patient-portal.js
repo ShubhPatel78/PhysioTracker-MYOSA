@@ -151,7 +151,7 @@ const PatientPortal = (() => {
   function processSensorForReps(data) {
     if (!sessionActive || !threshold) return;
 
-    const pitch = data._pitch !== undefined ? data._pitch : 0;
+    const pitch = data.pitch !== undefined ? data.pitch : (data._pitch !== undefined ? data._pitch : (data.a || 0));
     const absPitch = Math.abs(pitch);
     const gyroMag = Math.sqrt((data.gx || 0) ** 2 + (data.gy || 0) ** 2 + (data.gz || 0) ** 2);
     const temp = data.tp || 0;
@@ -178,8 +178,27 @@ const PatientPortal = (() => {
       }
     }
 
-    // ── 2. Rep Counting with Max Target Cap ──
-    // If target reached, do not allow over-exercising past doctor's prescription
+    // ── 2. Rep Counting (Hardware Direct + Software Hybrid) ──
+    if (data.reps !== null && data.reps !== undefined && data.reps > 0) {
+      repCount = data.reps;
+      _setEl('ptRepCount', repCount);
+      _setEl('ptRepCountBig', repCount);
+    } else {
+      // Software crossing logic
+      const minThreshold = Math.max(15, (threshold.minAngle || 30) - 10);
+      const maxThreshold = Math.min(170, (threshold.maxAngle || 110) - 15);
+      
+      if (absPitch >= maxThreshold && !maxLimitExceeded) {
+        wasAboveMin = true;
+      } else if (wasAboveMin && absPitch <= minThreshold) {
+        repCount++;
+        repTimestamps.push(Date.now());
+        wasAboveMin = false;
+        _setEl('ptRepCount', repCount);
+        _setEl('ptRepCountBig', repCount);
+      }
+    }
+
     if (repCount >= threshold.targetReps) {
       if (!alertFired) {
         alertFired = true;
@@ -190,31 +209,12 @@ const PatientPortal = (() => {
           if (maxLimitText) maxLimitText.textContent = `✓ Target Complete (${threshold.targetReps} reps). Please stop and save your session.`;
         }
       }
-    } else {
-      // Normal rep crossing detection
-      if (absPitch >= threshold.minAngle && !maxLimitExceeded) {
-        wasAboveMin = true;
-      } else if (wasAboveMin && absPitch < threshold.minAngle) {
-        repCount++;
-        repTimestamps.push(Date.now());
-        wasAboveMin = false;
-        _setEl('ptRepCount', repCount);
-        _setEl('ptRepCountBig', repCount);
-
-        if (repCount >= threshold.targetReps) {
-          alertFired = true;
-          _showExerciseAlert('success', `🎉 Target reached! ${repCount} reps completed!`);
-          App.showToast(`Great job! ${repCount} reps done!`, 'success');
-        }
-      }
     }
 
-    // ── 3. Motion & Temperature Safety Alerts ──
-    if (gyroMag > (threshold.motionLimit || 100)) {
+    // ── 3. Motion Safety Alerts ──
+    if (gyroMag > (threshold.motionLimit || 120)) {
       _showExerciseAlert('warning', `⚠ Motion too fast! Slow down for safety.`);
     }
-
-    
 
     // Update live metrics
     _setEl('ptLivePitch', absPitch.toFixed(1) + '°');
@@ -278,6 +278,10 @@ const PatientPortal = (() => {
     renderVideoDemo();
 
     App.showToast('Exercise session started! Follow the demonstration.', 'success');
+    // Send BLE exercise selection command if connected
+    if (typeof Connection !== 'undefined' && Connection.sendCommand && threshold?.exerciseType) {
+      Connection.sendCommand('EX:' + threshold.exerciseType);
+    }
 
     const timerEl = document.getElementById('ptExerciseTimer');
     window._ptTimerInterval = setInterval(() => {

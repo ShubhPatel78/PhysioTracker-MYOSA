@@ -241,13 +241,44 @@ const App = (() => {
     const gz = parseFloat(raw.gz) || 0;
     const tp = parseFloat(raw.tp) || 0;
 
-    const pitch = Math.atan2(ax, Math.sqrt(ay*ay + az*az)) * (180/Math.PI);
-    const roll  = Math.atan2(ay, Math.sqrt(ax*ax + az*az)) * (180/Math.PI);
+    let pitch = 0;
+    if (raw.pitch !== undefined && raw.pitch !== null) {
+      pitch = parseFloat(raw.pitch) || 0;
+    } else if (raw.a !== undefined && raw.a !== null) {
+      pitch = parseFloat(raw.a) || 0;
+    } else if (ax !== 0 || ay !== 0 || az !== 0) {
+      pitch = Math.atan2(ax, Math.sqrt(ay * ay + az * az)) * (180 / Math.PI);
+    }
+
+    const roll = raw.roll !== undefined ? raw.roll : (ax !== 0 || ay !== 0 || az !== 0 ? Math.atan2(ay, Math.sqrt(ax * ax + az * az)) * (180 / Math.PI) : 0);
     yaw += gz * dt;
     if (yaw > 180)  yaw -= 360;
     if (yaw < -180) yaw += 360;
 
-    const data = { ax, ay, az, gx, gy, gz, tp, _pitch: pitch, _roll: roll, _yaw: yaw };
+    const hardwareReps = raw.reps !== undefined ? raw.reps : (raw.r !== undefined ? raw.r : (raw.raw?.r !== undefined ? raw.raw.r : null));
+    const statusMsg = raw.message || raw.msg || raw.raw?.msg || '';
+
+    latestSensorData = {
+      pitch: Math.abs(pitch),
+      roll,
+      reps: hardwareReps,
+      message: statusMsg,
+      ax, ay, az, gx, gy, gz, tp,
+      _pitch: Math.abs(pitch),
+      _roll: roll,
+      _yaw: yaw
+    };
+
+    const data = {
+      ax, ay, az, gx, gy, gz, tp,
+      pitch: Math.abs(pitch),
+      roll,
+      _pitch: Math.abs(pitch),
+      _roll: roll,
+      _yaw: yaw,
+      reps: hardwareReps,
+      message: statusMsg
+    };
 
     updateSensorUI(data);
     Charts.push(data);
