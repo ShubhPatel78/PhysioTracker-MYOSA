@@ -229,11 +229,38 @@ const PatientPortal = (() => {
       const now = Date.now();
       if (!window._lastPeakTime) window._lastPeakTime = 0;
 
+      const exType = threshold.exerciseType || 'Bicep Curl';
+      let upMsg = 'Holding Peak...';
+      let midUpMsg = 'Raising...';
+      let midDownMsg = 'Lowering...';
+
+      if (exType.includes('Curl')) {
+        upMsg = 'Hold Peak Curl...';
+        midUpMsg = 'Curling Up...';
+        midDownMsg = 'Lowering...';
+      } else if (exType.includes('Leg')) {
+        upMsg = 'Hold Leg Raise...';
+        midUpMsg = 'Raising Leg...';
+        midDownMsg = 'Lowering Leg...';
+      } else if (exType.includes('Side')) {
+        upMsg = 'Hold Height...';
+        midUpMsg = 'Raising Sideways...';
+        midDownMsg = 'Lowering Control...';
+      } else if (exType.includes('Front')) {
+        upMsg = 'Hold Height...';
+        midUpMsg = 'Raising Forward...';
+        midDownMsg = 'Lowering Control...';
+      } else if (exType.includes('Circle') || exType.includes('Circumduction')) {
+        upMsg = 'Loop Complete! Keep Circling...';
+        midUpMsg = 'Circling...';
+        midDownMsg = 'Circling...';
+      }
+
       // Only transition to UP if sensor actually moved past UP threshold
       if (!wasAboveMin && movementAngle >= upThresh) {
         wasAboveMin = true;
         window._lastPeakTime = now;
-        _setEl('ptLiveMsg', 'Hold Peak Curl...');
+        _setEl('ptLiveMsg', upMsg);
       } else if (wasAboveMin && movementAngle <= downThresh) {
         // Enforce minimum curl duration (at least 600ms between peak and return) to reject jitter
         if (now - window._lastPeakTime >= 600) {
@@ -245,7 +272,7 @@ const PatientPortal = (() => {
           _setEl('ptLiveMsg', 'Rep Complete! Ready');
         }
       } else if (movementAngle > downThresh && movementAngle < upThresh) {
-        _setEl('ptLiveMsg', wasAboveMin ? 'Lowering...' : 'Curling Up...');
+        _setEl('ptLiveMsg', wasAboveMin ? midDownMsg : midUpMsg);
       } else if (movementAngle <= downThresh && !wasAboveMin) {
         _setEl('ptLiveMsg', 'Resting Position (Ready)');
       }

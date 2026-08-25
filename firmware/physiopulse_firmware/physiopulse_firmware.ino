@@ -415,7 +415,23 @@ void processSideRaise() {
   }
 }
 
-// 4. Hand Circular Movement
+// 4. Lower Leg Raise
+void processLowerLegRaise() {
+  float safeTarget = min(targetMaxAngle, 175.0f);
+  float THRESHOLD_UP = safeTarget - 15.0f;
+  float THRESHOLD_DOWN = 20.0f;
+  if (THRESHOLD_DOWN >= THRESHOLD_UP) THRESHOLD_DOWN = THRESHOLD_UP - 10.0f;
+  float MAX_SWAY = maxDeviationPlane + 5.0f;
+
+  if (fabs(twistError) > MAX_SWAY) formStatus = "Bad Form: Keep Leg Straight!";
+  else {
+    if (liveAngle > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Hold Leg Raise..."; }
+    else if (liveAngle < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Rep Complete! Ready"; }
+    else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) formStatus = isRaised ? "Lowering Leg..." : "Raising Leg...";
+  }
+}
+
+// 5. Hand Circular Movement
 void processHandCircle() {
   if (sessionComplete) return;
   int currentLoopCount = (int)(fabs(circleLiveAngle) / 360.0f);
@@ -432,7 +448,7 @@ void processHandCircle() {
   }
 }
 
-// 5. Wrist Circumduction
+// 6. Wrist Circumduction
 void processWristCircle() {
   if (sessionComplete) return;
   int currentLoopCount = (int)(fabs(circleLiveAngle) / 360.0f);
@@ -454,74 +470,14 @@ void processWristCircle() {
   }
 }
 
-// 6. Shoulder Overhead Press
-void processShoulderPress() {
-  float safeTarget = min(targetMaxAngle, 175.0f);
-  float THRESHOLD_UP = safeTarget - 15.0f;
-  float THRESHOLD_DOWN = 25.0f;
-  if (THRESHOLD_DOWN >= THRESHOLD_UP) THRESHOLD_DOWN = THRESHOLD_UP - 10.0f;
-
-  if (liveAngle > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Lockout at Top!"; }
-  else if (liveAngle < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Good Press! Ready"; }
-  else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) formStatus = isRaised ? "Lowering to Shoulders..." : "Pressing Overhead...";
-}
-
-// 7. Elbow / Triceps Extension
-void processElbowExtension() {
-  float safeTarget = min(targetMaxAngle, 170.0f);
-  float THRESHOLD_UP = safeTarget - 15.0f;
-  float THRESHOLD_DOWN = 20.0f;
-
-  if (liveAngle > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Full Extension! Hold"; }
-  else if (liveAngle < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Rep Complete! Ready"; }
-  else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) formStatus = isRaised ? "Bending Arm..." : "Extending Elbow...";
-}
-
-// 8. Knee Flexion / Extension
-void processKneeFlexion() {
-  float safeTarget = min(targetMaxAngle, 140.0f);
-  float THRESHOLD_UP = safeTarget - 15.0f;
-  float THRESHOLD_DOWN = 20.0f;
-
-  if (liveAngle > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Peak Flexion!"; }
-  else if (liveAngle < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Full Extension! Ready"; }
-  else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) formStatus = isRaised ? "Straightening Leg..." : "Bending Knee...";
-}
-
-// 9. Cervical / Neck Rotation
-void processNeckRotation() {
-  float safeTarget = min(targetMaxAngle, 85.0f);
-  float THRESHOLD_UP = safeTarget - 10.0f;
-  float THRESHOLD_DOWN = 10.0f;
-
-  if (fabs(liveAngle) > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Hold Neck Stretch..."; }
-  else if (fabs(liveAngle) < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Center Position. Ready"; }
-  else if (fabs(liveAngle) > THRESHOLD_DOWN && fabs(liveAngle) < THRESHOLD_UP) formStatus = isRaised ? "Returning to Center..." : "Rotating Neck...";
-}
-
-// 10. Wrist Flexion / Extension
-void processWristFlexion() {
-  float safeTarget = min(targetMaxAngle, 75.0f);
-  float THRESHOLD_UP = safeTarget - 10.0f;
-  float THRESHOLD_DOWN = 10.0f;
-
-  if (fabs(liveAngle) > THRESHOLD_UP && !isRaised) { isRaised = true; formStatus = "Hold Wrist Flexion..."; }
-  else if (fabs(liveAngle) < THRESHOLD_DOWN && isRaised) { isRaised = false; reps++; formStatus = "Rep Complete! Ready"; }
-  else if (fabs(liveAngle) > THRESHOLD_DOWN && fabs(liveAngle) < THRESHOLD_UP) formStatus = isRaised ? "Releasing Flexion..." : "Flexing Wrist...";
-}
-
 // ─── Route to Active Exercise ──────────────────────────────────────────────
 void routeActiveExercise() {
   if (currentExercise == "Bicep Curl") processBicepCurl();
   else if (currentExercise == "Front Shoulder Raise" || currentExercise == "Front Raise") processFrontRaise();
   else if (currentExercise == "Side Shoulder Raise" || currentExercise == "Side Raise") processSideRaise();
+  else if (currentExercise == "Lower Leg Raise" || currentExercise == "Leg Raise") processLowerLegRaise();
   else if (currentExercise == "Hand Circular Movement" || currentExercise == "Hand Circle") processHandCircle();
   else if (currentExercise == "Wrist Circumduction" || currentExercise == "Wrist Circle") processWristCircle();
-  else if (currentExercise == "Shoulder Overhead Press" || currentExercise == "Shoulder Press") processShoulderPress();
-  else if (currentExercise == "Elbow / Triceps Extension" || currentExercise == "Triceps Extension") processElbowExtension();
-  else if (currentExercise == "Knee Flexion / Extension" || currentExercise == "Knee Flexion") processKneeFlexion();
-  else if (currentExercise == "Cervical / Neck Rotation" || currentExercise == "Neck Rotation") processNeckRotation();
-  else if (currentExercise == "Wrist Flexion / Extension" || currentExercise == "Wrist Flexion") processWristFlexion();
   else processBicepCurl();
 }
 
@@ -529,12 +485,25 @@ void routeActiveExercise() {
 void processCommand(const String& cmd) {
   if (cmd.startsWith("EX:")) {
     currentExercise = cmd.substring(3);
+    if (currentExercise == "Bicep Curl") { maxKey = "bc_max"; swayKey = "bc_sway"; }
+    else if (currentExercise == "Front Shoulder Raise" || currentExercise == "Front Raise") { maxKey = "fs_max"; swayKey = "fs_sway"; }
+    else if (currentExercise == "Side Shoulder Raise" || currentExercise == "Side Raise") { maxKey = "ss_max"; swayKey = "ss_sway"; }
+    else if (currentExercise == "Lower Leg Raise" || currentExercise == "Leg Raise") { maxKey = "ll_max"; swayKey = "ll_sway"; }
+    else if (currentExercise == "Hand Circular Movement" || currentExercise == "Hand Circle") { maxKey = "hc_max"; swayKey = "hc_sway"; }
+    else if (currentExercise == "Wrist Circumduction" || currentExercise == "Wrist Circle") { maxKey = "wc_max"; swayKey = "wc_sway"; }
+    else { maxKey = "bc_max"; swayKey = "bc_sway"; }
+
     reps = 0;
     isRaised = false;
     sessionComplete = false;
     formStatus = "Selected: " + currentExercise;
+    if (prefs.isKey(maxKey.c_str()) && prefs.isKey(swayKey.c_str())) {
+      targetMaxAngle = prefs.getFloat(maxKey.c_str());
+      maxDeviationPlane = prefs.getFloat(swayKey.c_str());
+      targetIsDoctorConfirmed = true;
+    }
     if (calibState >= 2) calibState = 4;
-    Serial.printf("[BLE CMD] Set exercise: %s\n", currentExercise.c_str());
+    Serial.printf("[BLE CMD] Set exercise: %s (Key: %s)\n", currentExercise.c_str(), maxKey.c_str());
   }
   else if (cmd == "CAL1") {
     beginCollection(1);
