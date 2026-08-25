@@ -219,6 +219,25 @@ const PatientPortal = (() => {
     // twistError approximation: lateral gyro component (gz) scaled
     const twistError = Math.abs(data.gz || 0) * 0.5;
 
+    // ── DIAGNOSTIC (remove once reps work) ──
+    if (!window._repDbgTick) window._repDbgTick = 0;
+    if (++window._repDbgTick % 40 === 0) {  // log every ~2 seconds
+      console.log('[REP DBG]', {
+        absPitch:        absPitch.toFixed(1),
+        restingBaseline: restingBaseline?.toFixed(1),
+        liveAngle:       liveAngle.toFixed(1),
+        movementAngle:   movementAngle.toFixed(1),
+        THRESHOLD_UP,
+        THRESHOLD_DOWN,
+        wasAboveMin,
+        twistError:      twistError.toFixed(1),
+        MAX_SWAY_TOLERANCE,
+        repCount,
+        sessionActive,
+        isCalibrating,
+      });
+    }
+
     const maxLimitAlert = document.getElementById('ptMaxLimitAlert');
     const maxLimitText  = document.getElementById('ptMaxLimitText');
 
