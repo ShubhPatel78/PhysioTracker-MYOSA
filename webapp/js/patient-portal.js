@@ -247,6 +247,9 @@ const PatientPortal = (() => {
       }
     } else {
       // ── Exact firmware rep counting logic ──
+      // NOTE: movementAngle = |absPitch - restingBaseline| — always positive,
+      // orientation-agnostic (works regardless of which way sensor is mounted).
+      // liveAngle (signed) is only used for the hyperextension check.
       let formStatus = '';
 
       if (twistError > MAX_SWAY_TOLERANCE) {
@@ -258,11 +261,12 @@ const PatientPortal = (() => {
         _showExerciseAlert('warning', `⚠ ${formStatus}`);
 
       } else {
-        if (liveAngle > THRESHOLD_UP && !wasAboveMin) {
+        // Use movementAngle (absolute) to match firmware's positive liveAngle convention
+        if (movementAngle > THRESHOLD_UP && !wasAboveMin) {
           wasAboveMin = true;
           formStatus  = 'Hold Peak Curl...';
 
-        } else if (liveAngle < THRESHOLD_DOWN && wasAboveMin) {
+        } else if (movementAngle < THRESHOLD_DOWN && wasAboveMin) {
           wasAboveMin = false;
           repCount++;
           repTimestamps.push(Date.now());
@@ -270,7 +274,7 @@ const PatientPortal = (() => {
           _setEl('ptRepCount', repCount);
           _setEl('ptRepCountBig', repCount);
 
-        } else if (liveAngle > THRESHOLD_DOWN && liveAngle < THRESHOLD_UP) {
+        } else if (movementAngle > THRESHOLD_DOWN && movementAngle < THRESHOLD_UP) {
           formStatus = wasAboveMin ? 'Lowering...' : 'Curling Up...';
         }
       }

@@ -392,20 +392,26 @@ const App = (() => {
       t += 0.05;
       const noise = () => (Math.random() - 0.5) * 1.5;
 
-      // Simulate a real bicep curl: angle goes 0° → 120° → 0° (~1 rep per 3 seconds)
-      // sin oscillates -1 to 1; map to 0–120
-      const rawCurl = 60 + 62 * Math.sin(t * 1.05);
-      const pitchDeg = Math.max(0, rawCurl + noise());
+      let pitchDeg;
+      if (t < 30) {
+        // ── Calibration phase (first 30s): hold arm at resting position ──
+        // Emit a steady low angle so restingBaseline ≈ 5°
+        pitchDeg = 5 + noise() * 0.5;
+      } else {
+        // ── Active phase: full bicep curl cycle 5° → 120° → 5° ──
+        // After calibration, restingBaseline ≈ 5°
+        // movementAngle will swing 0° → ~115°, crossing THRESHOLD_UP (95°)
+        const activeT = t - 30;
+        pitchDeg = Math.max(0, 5 + 115 * Math.abs(Math.sin(activeT * 1.05)) + noise());
+      }
 
       const gx = Math.cos(t) * 30;
       const gy = Math.sin(t * 0.7) * 20;
       const gz = Math.sin(t * 0.4) * 10;
 
       processSensorData({
-        // Direct pitch field: used by rep counter and angle display
         pitch: pitchDeg,
         a:     pitchDeg,
-        // Derive ax/az so charts also render correctly
         ax: Math.sin(pitchDeg * Math.PI / 180),
         ay: 0.02,
         az: Math.cos(pitchDeg * Math.PI / 180),
@@ -421,6 +427,7 @@ const App = (() => {
     clearInterval(demoInterval);
     demoInterval = null;
   }
+
 
   // ─── Auth Event Listeners ─────────────────────────────────────────────────
   function bindAuthEvents() {
