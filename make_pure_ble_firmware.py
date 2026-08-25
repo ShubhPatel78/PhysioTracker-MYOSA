@@ -1,4 +1,4 @@
-/**
+firmware_code = r'''/**
  * ╔════════════════════════════════════════════════════════════════════════════╗
  * ║          PhysioTracker – 10-Exercise BLE Telemetry Firmware                ║
  * ║          MYOSA ESP32-WROVER + MPU-6050 Physiotherapy Hub (Zero Dependencies)║
@@ -673,3 +673,9 @@ void loop() {
     }
   }
 }
+'''
+
+with open("firmware/physiopulse_firmware/physiopulse_firmware.ino", "w") as f:
+    f.write(firmware_code)
+
+print("Created pure BLE zero-dependency firmware!")
