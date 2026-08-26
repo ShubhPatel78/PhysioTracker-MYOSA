@@ -604,6 +604,18 @@ const DoctorPortal = (() => {
         closeAddPatientModal();
         const ptCode = res?.patient_code || res?.user?.patient_code || 'PT-XXXX';
         App.showToast(`Patient created! Login ID: ${ptCode}`, 'success');
+
+        // Show credentials popup modal
+        const credModal = document.getElementById('patientCredentialsModal');
+        if (credModal) {
+          const nameEl = document.getElementById('ptCredName');
+          const codeEl = document.getElementById('ptCredCode');
+          const pwdEl = document.getElementById('ptCredPassword');
+          if (nameEl) nameEl.textContent = nameVal;
+          if (codeEl) codeEl.textContent = ptCode;
+          if (pwdEl) pwdEl.textContent = pwdVal;
+          credModal.classList.remove('hidden');
+        }
         
         // Refresh dashboard & patient list
         await renderDoctorDashboard();
@@ -619,6 +631,32 @@ const DoctorPortal = (() => {
           submitBtn.disabled = false;
           submitBtn.textContent = '➕ Create Patient & Generate ID';
         }
+      }
+    });
+
+    // Patient Credentials Modal Listeners
+    function closePtCredModal() {
+      const modal = document.getElementById('patientCredentialsModal');
+      if (modal) modal.classList.add('hidden');
+    }
+    document.getElementById('closePtCredModal')?.addEventListener('click', closePtCredModal);
+    document.getElementById('dismissPtCredModal')?.addEventListener('click', closePtCredModal);
+
+    document.getElementById('copyPtCodeBtn')?.addEventListener('click', () => {
+      const code = document.getElementById('ptCredCode')?.textContent;
+      if (code) {
+        navigator.clipboard.writeText(code).then(() => {
+          App.showToast(`Copied Patient ID: ${code}`, 'success');
+        });
+      }
+    });
+
+    document.getElementById('copyPtPwdBtn')?.addEventListener('click', () => {
+      const pwd = document.getElementById('ptCredPassword')?.textContent;
+      if (pwd) {
+        navigator.clipboard.writeText(pwd).then(() => {
+          App.showToast('Copied Password!', 'success');
+        });
       }
     });
 
