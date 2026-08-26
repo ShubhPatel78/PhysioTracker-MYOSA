@@ -1,53 +1,81 @@
-# PhysioPulse 🫀
-### MYOSA 6.0 – Stage 2 Working Prototype
-**Real-time Physiotherapy Monitoring System**
+# PhysioPulse (MYOSA) 🫀
+### Real-Time IoT Physiotherapy & Biomechanical Tele-Rehab System
 
 ---
 
-## Hardware
-
-| Component | Part |
-|---|---|
-| MCU | MYOSA ESP32-WROVER Board (WiFi + BLE) |
-| Sensor | MYOSA MPU-6050 / GY-521 Board |
-| I2C Address | **0x69** (AD0 pin = HIGH) |
-| I2C Pins | SDA = GPIO 21, SCL = GPIO 22 |
-| Connectivity | USB-C for programming |
+## 🌟 Overview
+**PhysioPulse (MYOSA)** is an end-to-end digital orthopedic rehabilitation system that pairs wearable **ESP32 IMU hardware** with a **dual-portal web platform** (Doctor Portal + Patient Portal) to automate rep counting, monitor Range of Motion (ROM), record doctor baselines, enforce safety thresholds, and track patient recovery.
 
 ---
 
-## Project Structure
+## 🏗️ System Architecture
 
 ```
-MYOSA 6.0 PhysioPulse/
-├── backend/                        ← FastAPI + SQLite Backend for Patient History
+PhysioPulse-MYOSA/
+├── backend/                        ← FastAPI + SQLAlchemy + SQLite Backend
 │   ├── app/
 │   │   ├── main.py                 ← FastAPI entry point & WebApp static mount
-│   │   ├── models.py               ← SQLAlchemy models (Users, Patients, Thresholds, History)
-│   │   ├── schemas.py              ← Pydantic schemas
-│   │   ├── auth.py                 ← JWT & Password authentication
-│   │   ├── seed.py                 ← Seed script for sample data
-│   │   └── routers/                ← REST API endpoints (auth, patients, thresholds, sessions)
-│   ├── tests/                      ← Automated pytest suite
-│   ├── requirements.txt            ← Python dependencies
-│   └── run.py                      ← One-command launcher (`python backend/run.py`)
+│   │   ├── models.py               ← Database Models (Users, Patients, Thresholds, Sessions, Pain Alerts)
+│   │   ├── schemas.py              ← Pydantic Schemas & Validations
+│   │   ├── auth.py                 ← JWT Auth & Password Hashing
+│   │   ├── seed.py                 ← Database Seeder (Default Accounts)
+│   │   └── routers/                ← REST API Endpoints (Auth, Patients, Thresholds, Sessions, Alerts)
+│   ├── requirements.txt            ← Backend Python dependencies
+│   └── run.py                      ← Local launcher (`python backend/run.py`)
 ├── firmware/
-│   ├── physiopulse_firmware.ino    ← Main ESP32 sketch (open this in Arduino IDE)
-│   ├── mpu6050.h                   ← Custom MPU-6050 I2C driver
-└── webapp/                         ← Web app source files (browser dev/testing)
-    ├── index.html
-    ├── manifest.json
-    ├── sw.js
-    ├── css/style.css
+│   └── physiopulse_firmware/
+│       └── physiopulse_firmware.ino ← Lightweight 50Hz BLE Raw IMU Streamer (Zero External Libs)
+└── webapp/                         ← Progressive Web Application (PWA)
+    ├── index.html                  ← Single-Page App with Doctor & Patient Portals
+    ├── manifest.json & sw.js       ← PWA Service Worker for Mobile / Offline
+    ├── css/style.css               ← Responsive Glassmorphic Dark Theme
     └── js/
-        ├── api.js                  ← Backend REST API Client
-        ├── auth.js                 ← Authentication & Patient Store
-        ├── doctor-portal.js        ← Doctor Dashboard & Patient Management
-        ├── patient-portal.js       ← Patient Dashboard & Exercise Rep Tracking
-        ├── session.js              ← Session Recording & CSV Download
-        ├── connection.js           ← BLE & WebSocket sensor connectivity
-        └── charts.js               ← Canvas graphs for real-time ROM
+        ├── physio-engine.js        ← V6.1 Biomechanical Math Engine & 6 Exercise FSMs
+        ├── doctor-portal.js        ← Doctor Dashboard, 15s Baseline, Patient Creator & Credential Modal
+        ├── patient-portal.js       ← Patient HUD, Live ROM Gauge & Rep Tracking
+        ├── api.js                  ← REST API Client with Local Timezone (+5:30 IST) Support
+        ├── auth.js                 ← Authentication State Manager
+        ├── connection.js           ← Web Bluetooth (BLE) Manager
+        ├── session.js              ← Session Recorder & CSV Exporter
+        └── charts.js               ← Real-time Dynamic Biomechanical Visualizations
 ```
+
+---
+
+## 🚀 Getting Started (Local Run)
+
+### 1. Backend & Web App
+```bash
+# 1. Open Terminal and navigate to repo
+cd PhysioTracker-MYOSA
+
+# 2. Activate Python Virtual Environment
+source venv/bin/activate
+
+# 3. Start the Server
+python backend/run.py
+```
+- Web Application: **http://localhost:8000**
+- API Documentation (Swagger): **http://localhost:8000/docs**
+- Phone on Same Wi-Fi: **http://<YOUR_LOCAL_IP>:8000**
+
+---
+
+## 🔑 Default Login Credentials
+
+| Role | Login Identifier | Password | Notes |
+|---|---|---|---|
+| **Doctor** | `doctor@physiopulse.com` | `doctor123` | Doctor PIN for 15s Baseline: `1234` |
+| **Patient 1** | `PT-0004` | `shubh123` | Assigned to Doctor |
+| **Patient 2** | `PT-0008` | `patient123` | Test Case Patient |
+
+---
+
+## 🩺 Hardware & Firmware Setup
+1. Open `firmware/physiopulse_firmware/physiopulse_firmware.ino` in **Arduino IDE**.
+2. Select **Board: ESP32 Dev Module**.
+3. Upload to your ESP32 board over USB-C.
+4. Open the Web App in **Google Chrome** and click **"Connect Bluetooth"** to pair directly with `PhysioPulse-Sensor`.
 
 ---
 
