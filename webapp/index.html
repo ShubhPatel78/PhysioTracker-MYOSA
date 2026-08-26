@@ -764,8 +764,8 @@
 
         <div class="form-group" style="margin-top:1rem">
           <label class="form-label" for="addPtPassword">Initial Password *</label>
-          <input type="text" class="form-input" id="addPtPassword" value="patient123" required />
-          <small style="color:rgba(255,255,255,0.4);font-size:0.75rem;display:block;margin-top:0.25rem">Patient can change this later, or you can reset it anytime from their profile.</small>
+          <input type="text" class="form-input" id="addPtPassword" value="patient123" minlength="6" required />
+          <small style="color:rgba(255,255,255,0.4);font-size:0.75rem;display:block;margin-top:0.25rem">Must be at least 6 characters. Patient can change this later.</small>
         </div>
       </div>
       <div class="modal-footer" style="padding:1rem 1.5rem;display:flex;justify-content:flex-end;gap:0.75rem;border-top:1px solid rgba(255,255,255,0.08)">

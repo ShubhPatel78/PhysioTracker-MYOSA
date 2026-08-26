@@ -593,6 +593,7 @@ const DoctorPortal = (() => {
         const pwdVal = document.getElementById('addPtPassword')?.value || 'patient123';
 
         if (!nameVal) throw new Error('Patient name is required');
+        if (!pwdVal || pwdVal.length < 6) throw new Error('Password must be at least 6 characters');
 
         const res = await Auth.createPatient({
           name: nameVal,

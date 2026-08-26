@@ -111,7 +111,14 @@ const API = (() => {
         let errorMsg = `HTTP Error ${res.status}`;
         try {
           const errData = await res.json();
-          if (errData.detail) errorMsg = errData.detail;
+          if (typeof errData.detail === 'string') {
+            errorMsg = errData.detail;
+          } else if (Array.isArray(errData.detail)) {
+            // FastAPI validation error array [{loc, msg, type}]
+            errorMsg = errData.detail.map(d => d.msg || JSON.stringify(d)).join(', ');
+          } else if (errData.detail && typeof errData.detail === 'object') {
+            errorMsg = JSON.stringify(errData.detail);
+          }
         } catch (_) {}
         throw new Error(errorMsg);
       }
